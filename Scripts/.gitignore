@@ -1,0 +1,14 @@
+venv/
+.mypy_cache/
+**/.ipynb_checkpoints
+**/__pycache__
+*.png
+*.jpg
+*.jpeg
+*.yuv
+*.mp4
+*.npy
+*.npz
+*.dae
+dataset/*
+logs/*
