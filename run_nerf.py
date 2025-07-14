@@ -25,8 +25,6 @@ device = torch.device(
     "cpu"
 )
 
-print(f"Device is: *********{device}*********")
-
 np.random.seed(0)
 DEBUG = False
 
@@ -630,6 +628,9 @@ def train():
         device = torch.device(f"mps" if torch.backends.mps.is_available() else "cpu")
         print("****************** MAC POWER ******************")
     """
+
+    print(f"Device is: *********{device}*********")
+
     # Load data
     K = None
     if args.dataset_type == 'llff':
@@ -889,7 +890,7 @@ def train():
             pose = poses[img_i, :3,:4]
 
             if N_rand is not None:
-                rays_o, rays_d = get_rays(H, W, K, torch.Tensor(pose))  # (H, W, 3), (H, W, 3)
+                rays_o, rays_d = get_rays(H, W, K, torch.Tensor(pose).to(device))  # (H, W, 3), (H, W, 3)
 
                 if i < args.precrop_iters:
                     dH = int(H//2 * args.precrop_frac)
@@ -993,11 +994,12 @@ def train():
                     depth_loss0 = F.mse_loss(extras['depth0'] * valid_depth_mask,
                                         target_d * valid_depth_mask)
                     loss = loss + args.depth_weight * depth_loss0
-            '''
+            
             # Metrics
             psnr = mse2psnr(img_loss)
             if 'depth0' in extras:
                 depth_rmse = torch.sqrt(depth_loss0).item()  # For logging
+            '''
         '''
         # Log losses and metrics
         writer.add_scalar('Loss/total', loss.item(), i)
