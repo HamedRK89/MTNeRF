@@ -607,6 +607,10 @@ def config_parser():
     # debug
     parser.add_argument("--debug", action='store_true')
 
+    # mac users
+    parser.add_argument("--mps", action='store_true',
+                        help="For Mac users if they want to use MPS GPU")
+
     return parser
 
 
@@ -615,7 +619,9 @@ def train():
     parser = config_parser()
     args = parser.parse_args()
 
-    #device = torch.device(f"cuda:{args.gpu_id}" if torch.cuda.is_available() else "cpu")
+    if args.mps:
+        device = torch.device(f"mps" if torch.mps.backends.is_available() else "cpu")
+        print("****************** MAC POWER ******************")
 
     # Load data
     K = None
