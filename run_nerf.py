@@ -19,7 +19,14 @@ from load_blender import load_blender_data
 from load_LINEMOD import load_LINEMOD_data
 from torch.utils.tensorboard import SummaryWriter
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device(
+    "cuda" if torch.cuda.is_available() else
+    "mps" if torch.backends.mps.is_available() else
+    "cpu"
+)
+
+print(f"Device is: *********{device}*********")
+
 np.random.seed(0)
 DEBUG = False
 
@@ -618,11 +625,11 @@ def train():
 
     parser = config_parser()
     args = parser.parse_args()
-
+    """
     if args.mps:
-        device = torch.device(f"mps" if torch.mps.backends.is_available() else "cpu")
+        device = torch.device(f"mps" if torch.backends.mps.is_available() else "cpu")
         print("****************** MAC POWER ******************")
-
+    """
     # Load data
     K = None
     if args.dataset_type == 'llff':
@@ -1126,6 +1133,6 @@ def train():
 
 
 if __name__=='__main__':
-    torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    #torch.set_default_tensor_type('torch.cuda.FloatTensor')
 
     train()
