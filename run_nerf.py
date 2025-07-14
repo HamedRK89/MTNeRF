@@ -996,8 +996,10 @@ def train():
             '''
             # Metrics
             psnr = mse2psnr(img_loss)
+            '''
             if 'depth0' in extras:
                 depth_rmse = torch.sqrt(depth_loss0).item()  # For logging
+            '''
         '''
         # Log losses and metrics
         writer.add_scalar('Loss/total', loss.item(), i)
