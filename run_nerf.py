@@ -1136,5 +1136,15 @@ def train():
 
 if __name__=='__main__':
     #torch.set_default_tensor_type('torch.cuda.FloatTensor')
-
+    
+    if torch.backends.mps.is_available():
+        device = torch.device("mps")
+        torch.set_default_device(device)  # For PyTorch 2.0+
+        # For older PyTorch versions, you might need to use:
+        # torch.set_default_tensor_type('torch.FloatTensor') and manually move tensors
+    elif torch.cuda.is_available():
+        torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    else:
+        torch.set_default_tensor_type('torch.FloatTensor')
+        
     train()
