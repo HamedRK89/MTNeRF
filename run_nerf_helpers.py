@@ -3,6 +3,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from torch.autograd import grad
+
 
 
 # Misc
@@ -146,6 +148,74 @@ class NeRF(nn.Module):
         idx_alpha_linear = 2 * self.D + 6
         self.alpha_linear.weight.data = torch.from_numpy(np.transpose(weights[idx_alpha_linear]))
         self.alpha_linear.bias.data = torch.from_numpy(np.transpose(weights[idx_alpha_linear+1]))
+
+
+def flatten_gradients_per_layer(grads):
+    return [g.reshape(-1) if g is not None else torch.tensor([]).to(grads[0].device) for g in grads]
+def get_shared_layers(model):
+    return [[p for p in layer.parameters() if p.requires_grad] for layer in model.pts_linears]
+def compute_layerwise_gradients(model, x, y, shared_layers):
+    model.zero_grad()
+    pred = model(x)
+    loss = F.mse_loss(pred, y)  # replace with your actual task-specific loss
+    all_layer_grads = []
+
+    for layer_params in shared_layers:
+        grads = grad(loss, layer_params, retain_graph=True, create_graph=False, allow_unused=True)
+        grads = flatten_gradients_per_layer(grads)
+        if grads:
+            all_layer_grads.append(torch.cat(grads))
+        else:
+            all_layer_grads.append(torch.tensor([]).to(loss.device))
+
+    return all_layer_grads
+def compute_avg_layerwise_cosine_similarity(model, dataloader1, dataloader2, device):
+    shared_layers = get_shared_layers(model)
+    n_layers = len(shared_layers)
+    similarity_sums = [0.0] * n_layers
+    num_batches = 0
+
+    for (x1, y1), (x2, y2) in zip(dataloader1, dataloader2):
+        x1, y1 = x1.to(device), y1.to(device)
+        x2, y2 = x2.to(device), y2.to(device)
+
+        grads1 = compute_layerwise_gradients(model, x1, y1, shared_layers)
+        grads2 = compute_layerwise_gradients(model, x2, y2, shared_layers)
+
+        for i, (g1, g2) in enumerate(zip(grads1, grads2)):
+            if g1.numel() > 0 and g2.numel() > 0:
+                sim = F.cosine_similarity(g1.unsqueeze(0), g2.unsqueeze(0), dim=1).item()
+                similarity_sums[i] += sim
+
+        num_batches += 1
+
+    avg_similarities = [s / num_batches for s in similarity_sums]
+    return avg_similarities
+#EXAMPLE USAGE
+# model = NeRF(...).cuda()
+# x1, y1 = task1_batch  # shape [B, input_ch + input_ch_views], [B, output_ch]
+# x2, y2 = task2_batch
+
+# x1, y1 = x1.cuda(), y1.cuda()
+# x2, y2 = x2.cuda(), y2.cuda()
+
+# sim = compute_gradient_cosine_similarity(model, x1, y1, x2, y2)
+# print(f"Gradient similarity between task A and task B: {sim:.4f}")
+
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# model = NeRF(...).to(device)
+
+# avg_sim = compute_avg_layerwise_cosine_similarity(model, loader_task1, loader_task2, device)
+
+# for i, sim in enumerate(avg_sim):
+#     print(f"Layer {i}: Avg Cosine Similarity = {sim:.4f}")
+
+
+
+
+
+
+
 
 
 class NeRF_Depth(nn.Module):
