@@ -303,7 +303,6 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
     raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-act_fn(raw)*dists)
 
     dists = z_vals[...,1:] - z_vals[...,:-1]
-    #dists = torch.cat([dists, (torch.Tensor([1e10]), device=device).expand(dists[...,:1].shape)], -1)  # [N_rays, N_samples]
     dists = torch.cat([dists, torch.tensor([1e10], device=device).expand(dists[...,:1].shape)], -1)
 
     dists = dists * torch.norm(rays_d[...,None,:], dim=-1)
