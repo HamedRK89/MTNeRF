@@ -24,6 +24,7 @@ device = torch.device(
     "mps" if torch.backends.mps.is_available() else
     "cpu"
 )
+print(f"Using device: {device}")
 
 np.random.seed(0)
 DEBUG = False
@@ -302,20 +303,21 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
     raw2alpha = lambda raw, dists, act_fn=F.relu: 1.-torch.exp(-act_fn(raw)*dists)
 
     dists = z_vals[...,1:] - z_vals[...,:-1]
-    dists = torch.cat([dists, torch.Tensor([1e10]).expand(dists[...,:1].shape)], -1)  # [N_rays, N_samples]
+    #dists = torch.cat([dists, (torch.Tensor([1e10]), device=device).expand(dists[...,:1].shape)], -1)  # [N_rays, N_samples]
+    dists = torch.cat([dists, torch.tensor([1e10], device=device).expand(dists[...,:1].shape)], -1)
 
     dists = dists * torch.norm(rays_d[...,None,:], dim=-1)
 
     rgb = torch.sigmoid(raw[...,:3])  # [N_rays, N_samples, 3]
     noise = 0.
     if raw_noise_std > 0.:
-        noise = torch.randn(raw[...,3].shape) * raw_noise_std
+        noise = torch.randn(raw[...,3].shape, device=device) * raw_noise_std
 
         # Overwrite randomly sampled data if pytest
         if pytest:
             np.random.seed(0)
             noise = np.random.rand(*list(raw[...,3].shape)) * raw_noise_std
-            noise = torch.Tensor(noise)
+            noise = torch.Tensor(noise).to(device)
 
     alpha = raw2alpha(raw[...,3] + noise, dists)  # [N_rays, N_samples]
     # weights = alpha * tf.math.cumprod(1.-alpha + 1e-10, -1, exclusive=True)
@@ -446,7 +448,7 @@ def render_rays(ray_batch,
         if pytest:
             np.random.seed(0)
             t_rand = np.random.rand(*list(z_vals.shape))
-            t_rand = torch.Tensor(t_rand)
+            t_rand = torch.Tensor(t_rand).to(device)
 
         z_vals = lower + (upper - lower) * t_rand
 
@@ -1135,16 +1137,14 @@ def train():
 
 
 if __name__=='__main__':
-    #torch.set_default_tensor_type('torch.cuda.FloatTensor')
-    
-    if torch.backends.mps.is_available():
-        device = torch.device("mps")
-        torch.set_default_device(device)  # For PyTorch 2.0+
-        # For older PyTorch versions, you might need to use:
-        # torch.set_default_tensor_type('torch.FloatTensor') and manually move tensors
-    elif torch.cuda.is_available():
+    # torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    # Set default tensor type based on available device
+    if torch.cuda.is_available():
         torch.set_default_tensor_type('torch.cuda.FloatTensor')
+    elif torch.backends.mps.is_available():
+        # MPS doesn't have a specific tensor type, just use normal tensors
+        torch.set_default_dtype(torch.float32)
     else:
-        torch.set_default_tensor_type('torch.FloatTensor')
-        
+        torch.set_default_dtype(torch.float32)
+    
     train()

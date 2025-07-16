@@ -12,3 +12,4 @@ venv/
 *.dae
 dataset/*
 logs/*
+.vscode/
