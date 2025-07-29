@@ -1022,6 +1022,25 @@ def train():
         #writer.add_scalar('Learning_rate', new_lrate, i)
 
         loss.backward()
+        
+        def log_gradients(model, model_name="model"):
+            print(f"\nGradients for {model_name}:")
+            for name, param in model.named_parameters():
+                if param.grad is not None:
+                    grad = param.grad
+                    print(f"{name:40s} | grad mean: {grad.mean():+.6f} | std: {grad.std():+.6f} | norm: {grad.norm():.6f}")
+                else:
+                    print(f"{name:40s} | No gradient!")
+        
+
+        model = render_kwargs_train['network_fn']
+        model_fine = render_kwargs_train.get('network_fine', None)
+        
+        log_gradients(model, model_name="coarse model")
+        if model_fine is not None:
+            log_gradients(model_fine, model_name="fine model")
+
+
         optimizer.step()
 
         # NOTE: IMPORTANT!
