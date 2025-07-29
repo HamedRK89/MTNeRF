@@ -635,16 +635,24 @@ def train():
     # Load data
     K = None
     if args.dataset_type == 'llff':
-        images, poses, bds, render_poses, i_test = load_llff_data(args.datadir, args.factor,
+        images_orig, poses_orig, bds, images_virtual, poses_virtual, render_poses, i_test = load_llff_data(args.datadir, args.factor,
                                                                   recenter=True, bd_factor=.75,
                                                                   spherify=args.spherify)
+        num_orig = images_orig.shape[0]
+        print('Number of original images: ', num_orig)
+        print(images_orig.shape, poses_orig.shape)
+
+        images_virtual = images_virtual[:num_orig, ]
+        poses_virtual = poses_virtual[:num_orig, ]
+
         if args.depth_supervision:
             depths = _load_depth_data(args.datadir, args.factor, load_depth=True) 
             print(f'depth shape: {depths.shape}') # numpy array
 
-        hwf = poses[0,:3,-1]
-        poses = poses[:,:3,:4]
-        print(f'Loaded llff, images shape: {images.shape}, render poses shape: {render_poses.shape}, hwf: {hwf}, data dir: {args.datadir}')
+        hwf = poses_orig[0,:3,-1]
+        poses_orig = poses_orig[:,:3,:4]
+        poses_virtual = poses_virtual[:,:3,:4]
+        #print(f'Loaded llff, images shape: {images.shape}, render poses shape: {render_poses.shape}, hwf: {hwf}, data dir: {args.datadir}')
         
         if args.i_test is not None:
             i_test = [args.i_test]
@@ -654,10 +662,11 @@ def train():
 
         if args.llffhold > 0:
             print('Auto LLFF holdout,', args.llffhold)
-            i_test = np.arange(images.shape[0])[::args.llffhold]
+            i_test = np.arange(images_orig.shape[0])[::args.llffhold]
 
+        total_num = images_orig.shape[0] + images_virtual.shape[0]
         i_val = i_test
-        i_train = np.array([i for i in np.arange(int(images.shape[0])) if
+        i_train = np.array([i for i in np.arange(total_num) if
                         (i not in i_test and i not in i_val)])
 
         print('DEFINING BOUNDS')
@@ -724,7 +733,7 @@ def train():
         ])
 
     if args.render_test:
-        render_poses = np.array(poses[i_test])
+        render_poses = np.array(poses_orig[i_test])
 
     # Create log dir and copy the config file
     basedir = args.basedir
@@ -781,24 +790,35 @@ def train():
     if use_batching:
         # For random ray batching
         print('get rays')
-        rays = np.stack([get_rays_np(H, W, K, p) for p in poses[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
+        rays_orig = np.stack([get_rays_np(H, W, K, p) for p in poses_orig[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
+        rays_virtual = np.stack([get_rays_np(H, W, K, p) for p in poses_virtual[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
+
         # Rays shape:   [N, ro+rd, H, W, 3]
         # Images shape: [N, H, W, 3]
         # Depths shape: [N, H, W]
+        '''
         if args.debug:
             print(f"SHAPES:\n\tRays Shape: {rays.shape}, Images Shape: {images.shape}")
             if args.depth_supervision:
                 print(f"Depths Shape: {depths.shape}")
-
+        '''
         if not args.depth_supervision:
             print('done, concats')
-            rays_rgb = np.concatenate([rays, images[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
-            rays_rgb = np.transpose(rays_rgb, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
-            rays_rgb = np.stack([rays_rgb[i] for i in i_train], 0) # train images only
-            rays_rgb = np.reshape(rays_rgb, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
-            rays_rgb = rays_rgb.astype(np.float32)
-            np.random.shuffle(rays_rgb)
+            rays_rgb_orig = np.concatenate([rays_orig, images_orig[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
+            rays_rgb_orig = np.transpose(rays_rgb_orig, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
+            rays_rgb_orig = np.stack([rays_rgb_orig[i] for i in i_train[0:num_orig-1]], 0) # train images only, Needs to be corrected and generalized later!
+            rays_rgb_orig = np.reshape(rays_rgb_orig, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
+            rays_rgb_orig = rays_rgb_orig.astype(np.float32)
+            np.random.shuffle(rays_rgb_orig)
+
+            rays_rgb_virtual = np.concatenate([rays_virtual, images_virtual[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
+            rays_rgb_virtual = np.transpose(rays_rgb_virtual, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
+            rays_rgb_virtual = np.stack([rays_rgb_virtual[i] for i in i_train[:4]], 0) # train images only
+            rays_rgb_virtual = np.reshape(rays_rgb_virtual, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
+            rays_rgb_virtual = rays_rgb_virtual.astype(np.float32)
+            np.random.shuffle(rays_rgb_virtual)
         
+        ''''
         else:
             # First concatenate rays, images, and depths
             # Add dimensions to images and depths to match rays' structure
@@ -816,6 +836,7 @@ def train():
             rays_rgbd = np.reshape(rays_rgbd, [-1, 4, 3])  # [(N-1)*H*W, 4, 3]
             rays_rgbd = rays_rgbd.astype(np.float32) # Before dtype was: float64
             np.random.shuffle(rays_rgbd)
+            '''
 
         print('shuffle rays')
         print('done')
@@ -823,15 +844,20 @@ def train():
 
     # Move training data to GPU
     if use_batching:
-        images = torch.Tensor(images).to(device)
+        images_orig = torch.Tensor(images_orig).to(device)
+        images_virtual = torch.Tensor(images_virtual).to(device)
         if args.depth_supervision:
             depths = torch.Tensor(depths).to(device)
-    poses = torch.Tensor(poses).to(device)
+    poses_orig = torch.Tensor(poses_orig).to(device)
+    poses_virtual = torch.Tensor(poses_virtual).to(device)
     if use_batching:
         if not args.depth_supervision:
-            rays_rgb = torch.Tensor(rays_rgb).to(device)
+            rays_rgb_orig = torch.Tensor(rays_rgb_orig).to(device)
+            rays_rgb_virtual = torch.Tensor(rays_rgb_virtual).to(device)
+            
         else:
             rays_rgbd = torch.Tensor(rays_rgbd).to(device)
+            
 
     N_iters = 200000 + 1
     print('Begin')
@@ -850,16 +876,23 @@ def train():
         if use_batching:
             if not args.depth_supervision:
                 # Random over all images
-                batch = rays_rgb[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
-                batch = torch.transpose(batch, 0, 1)
-                batch_rays, target_s = batch[:2], batch[2]
+                batch_orig= rays_rgb_orig[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
+                batch_orig = torch.transpose(batch_orig, 0, 1)
+                batch_rays_orig, target_s_orig = batch_orig[:2], batch_orig[2]
+
+                batch_virtual= rays_rgb_virtual[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
+                batch_virtual = torch.transpose(batch_virtual, 0, 1)
+                batch_rays_virtual, target_s_virtual = batch_virtual[:2], batch_virtual[2]
+                
 
                 i_batch += N_rand
-                if i_batch >= rays_rgb.shape[0]:
+                if i_batch >= rays_rgb_orig.shape[0]:
                     print("Shuffle data after an epoch!")
-                    rand_idx = torch.randperm(rays_rgb.shape[0])
-                    rays_rgb = rays_rgb[rand_idx]
+                    rand_idx = torch.randperm(rays_rgb_orig.shape[0])
+                    rays_rgb_orig= rays_rgb_orig[rand_idx]
+                    rays_rgb_virtual= rays_rgb_virtual[rand_idx]
                     i_batch = 0
+            '''  
             else:
                 if use_batching:
                     # Random over all images
@@ -883,6 +916,8 @@ def train():
                         rand_idx = torch.randperm(rays_rgbd.shape[0])
                         rays_rgbd = rays_rgbd[rand_idx]
                         i_batch = 0
+                        '''
+                        
         else:
             # Random from one image
             img_i = np.random.choice(i_train)
@@ -915,7 +950,11 @@ def train():
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
         #####  Core optimization loop  #####
-        rgb, disp, acc, depth, extras = render(H, W, K, chunk=args.chunk, rays=batch_rays,
+        rgb_orig, disp_orig, acc_orig, depth_orig, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,
+                                                verbose=i < 10, retraw=True,
+                                                **render_kwargs_train)
+        
+        rgb_virtual, disp_virtual, acc_virtual, depth_virtual, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
         optimizer.zero_grad()
@@ -929,6 +968,7 @@ def train():
                 img_loss0 = img2mse(extras['rgb0'], target_s)
                 loss = loss + img_loss0
                 psnr0 = mse2psnr(img_loss0)
+                
         else:
             # print(f"----------------------------\n RGB: {rgb} \n target_RGB: {target_rgb} \n  epth: {depth} \n target_d:{target_d}")
             #rendered_depth = 1. / torch.clamp(disp, min=1e-6)
@@ -1022,7 +1062,7 @@ def train():
         #writer.add_scalar('Learning_rate', new_lrate, i)
 
         loss.backward()
-        
+        '''
         def log_gradients(model, model_name="model"):
             print(f"\nGradients for {model_name}:")
             for name, param in model.named_parameters():
@@ -1031,7 +1071,6 @@ def train():
                     print(f"{name:40s} | grad mean: {grad.mean():+.6f} | std: {grad.std():+.6f} | norm: {grad.norm():.6f}")
                 else:
                     print(f"{name:40s} | No gradient!")
-        
 
         model = render_kwargs_train['network_fn']
         model_fine = render_kwargs_train.get('network_fine', None)
@@ -1039,8 +1078,28 @@ def train():
         log_gradients(model, model_name="coarse model")
         if model_fine is not None:
             log_gradients(model_fine, model_name="fine model")
+        
+        '''
 
+        # Store gradient means across iterations
+        grad_means_all = {"coarse model": {}, "fine model": {}}
 
+        def log_gradients(model, model_label, grad_means_all):
+            grad_means_this_iter = {}
+            for name, param in model.named_parameters():
+                grad_mean = param.grad.mean().item()
+                grad_means_this_iter[name] = grad_mean
+                
+            grad_means_all[model_label][f"iter_{global_step}"] = grad_means_this_iter
+
+        # After loss.backward()
+        model = render_kwargs_train['network_fn']
+        model_fine = render_kwargs_train.get('network_fine', None)
+
+        log_gradients(model, "coarse model", grad_means_all)
+        log_gradients(model_fine, "fine model", grad_means_all)
+
+   
         optimizer.step()
 
         # NOTE: IMPORTANT!
@@ -1145,14 +1204,14 @@ def train():
                 if args.N_importance > 0:
 
                     with tf.contrib.summary.record_summaries_every_n_global_steps(args.i_img):
-                        tf.contrib.summary.image('rgb0', to8b(extras['rgb0'])[tf.newaxis])
+                        tf.contrib.summary.image('rgb0', to8b(extras['rgb0'])[tf.newaxis])∆
                         tf.contrib.summary.image('disp0', extras['disp0'][tf.newaxis,...,tf.newaxis])
                         tf.contrib.summary.image('z_std', extras['z_std'][tf.newaxis,...,tf.newaxis])
         """
 
         global_step += 1
         #writer.close()
-
+    return grad_means_all
 
 if __name__=='__main__':
     # torch.set_default_tensor_type('torch.cuda.FloatTensor')
