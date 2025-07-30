@@ -750,20 +750,27 @@ def train():
             file.write(open(args.config, 'r').read())
 
     # Create nerf model
-    render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer = create_nerf(args)
-    global_step = start
+    render_kwargs_train_orig, render_kwargs_test_orig, start_orig, grad_vars_orig, optimizer_orig = create_nerf(args)
+    render_kwargs_train_virtual, render_kwargs_test_virtual, start_virtual, grad_vars_virtual, optimizer_virtual= create_nerf(args)
+
+    global_step = start_orig
+
 
     bds_dict = {
         'near' : near,
         'far' : far,
     }
-    render_kwargs_train.update(bds_dict)
-    render_kwargs_test.update(bds_dict)
+    render_kwargs_train_orig.update(bds_dict)
+    render_kwargs_test_orig.update(bds_dict)
+
+    render_kwargs_train_virtual.update(bds_dict)
+    render_kwargs_test_virtual.update(bds_dict)
 
     # Move testing data to GPU
     render_poses = torch.Tensor(render_poses).to(device)
 
     # Short circuit if only rendering out from trained model
+    
     if args.render_only: # To be done later!
         print('RENDER ONLY')
         with torch.no_grad():
@@ -781,7 +788,6 @@ def train():
             rgbs, _ = render_path(render_poses, hwf, K, args.chunk, render_kwargs_test, gt_imgs=images, savedir=testsavedir, render_factor=args.render_factor)
             print('Done rendering', testsavedir)
             imageio.mimwrite(os.path.join(testsavedir, 'video.mp4'), to8b(rgbs), fps=30, quality=8)
-
             return
 
     # Prepare raybatch tensor if batching random rays
@@ -952,23 +958,35 @@ def train():
         #####  Core optimization loop  #####
         rgb_orig, disp_orig, acc_orig, depth_orig, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,
                                                 verbose=i < 10, retraw=True,
-                                                **render_kwargs_train)
+                                                **render_kwargs_train_orig)
         
         rgb_virtual, disp_virtual, acc_virtual, depth_virtual, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,
                                                 verbose=i < 10, retraw=True,
-                                                **render_kwargs_train)
-        optimizer.zero_grad()
+                                                **render_kwargs_train_virtual)
+        optimizer_orig.zero_grad()
+        optimizer_virtual.zero_grad()
+        
         if not args.depth_supervision:
-            img_loss = img2mse(rgb, target_s)
-            trans = extras['raw'][...,-1]
-            loss = img_loss
-            psnr = mse2psnr(img_loss)
+            img_loss_orig = img2mse(rgb_orig, target_s_orig)
+            trans_orig = extras_orig['raw'][...,-1]
+            loss_orig = img_loss_orig
+            psnr_orig= mse2psnr(img_loss_orig)
 
-            if 'rgb0' in extras:
-                img_loss0 = img2mse(extras['rgb0'], target_s)
-                loss = loss + img_loss0
-                psnr0 = mse2psnr(img_loss0)
-                
+            img_loss_virtual = img2mse(rgb_virtual, target_s_virtual)
+            trans_virtual = extras_virtual['raw'][...,-1]
+            loss_virtual= img_loss_virtual
+            psnr_virtual= mse2psnr(img_loss_virtual)
+
+            if 'rgb0' in extras_orig:
+                img_loss0_orig = img2mse(extras_orig['rgb0'], target_s_orig)
+                loss_orig = loss_orig + img_loss0_orig
+                psnr0_orig= mse2psnr(img_loss0_orig)
+
+            if 'rgb0' in extras_virtual:
+                img_loss0_virtual= img2mse(extras_virtual['rgb0'], target_s_virtual)
+                loss_virtual = loss_virtual + img_loss0_virtual
+                psnr0_virtual = mse2psnr(img_loss0_virtual)
+        '''  
         else:
             # print(f"----------------------------\n RGB: {rgb} \n target_RGB: {target_rgb} \n  epth: {depth} \n target_d:{target_d}")
             #rendered_depth = 1. / torch.clamp(disp, min=1e-6)
@@ -1026,7 +1044,7 @@ def train():
             trans = extras['raw'][...,-1]  # transparency
 
             # 4. Coarse network loss (if used)
-            '''
+            
             if 'rgb0' in extras:
                 img_loss0 = img2mse(extras['rgb0'], target_rgb)
                 loss = loss + img_loss0
@@ -1040,12 +1058,13 @@ def train():
             psnr = mse2psnr(img_loss)
             if 'depth0' in extras:
                 depth_rmse = torch.sqrt(depth_loss0).item()  # For logging
-            '''
         '''
+        
+        ''''
         # Log losses and metrics
-        writer.add_scalar('Loss/total', loss.item(), i)
-        writer.add_scalar('Loss/img', img_loss.item(), i)
-        writer.add_scalar('Metrics/PSNR', psnr.item(), i)
+        writer_orig.add_scalar('Loss/total', loss_orig.item(), i)
+        writer_orig.add_scalar('Loss/img', img_loss_orig.item(), i)
+        writer_orig.add_scalar('Metrics/PSNR', psnr_orig.item(), i)
         
         if args.depth_supervision:
             writer.add_scalar('Loss/depth', depth_loss.item(), i)
@@ -1057,28 +1076,55 @@ def train():
         if 'rgb0' in extras:
             writer.add_scalar('Loss/img0', img_loss0.item(), i)
             writer.add_scalar('Metrics/PSNR0', psnr0.item(), i)
-        '''
+        
         # Log learning rate
         #writer.add_scalar('Learning_rate', new_lrate, i)
-
-        loss.backward()
         '''
-        def log_gradients(model, model_name="model"):
-            print(f"\nGradients for {model_name}:")
-            for name, param in model.named_parameters():
-                if param.grad is not None:
-                    grad = param.grad
-                    print(f"{name:40s} | grad mean: {grad.mean():+.6f} | std: {grad.std():+.6f} | norm: {grad.norm():.6f}")
-                else:
-                    print(f"{name:40s} | No gradient!")
+        loss_orig.backward()
+        loss_virtual.backward()
+    
+        import torch
+        import torch.nn.functional as F
 
-        model = render_kwargs_train['network_fn']
-        model_fine = render_kwargs_train.get('network_fine', None)
-        
-        log_gradients(model, model_name="coarse model")
-        if model_fine is not None:
-            log_gradients(model_fine, model_name="fine model")
-        
+        def get_grad_vector(model):
+            grads = []
+            for param in model.parameters():
+                if param.grad is not None:
+                    grads.append(param.grad.view(-1))  # flatten
+            if grads:
+                return torch.cat(grads)
+            else:
+                return torch.tensor([])  # empty in case no gradients
+
+        #Coarse model
+        # Get gradient vectors
+        model_orig = render_kwargs_train_orig['network_fn']
+        model_virtual = render_kwargs_train_virtual['network_fn']
+
+        grad_vec_orig = get_grad_vector(model_orig)
+        grad_vec_virtual = get_grad_vector(model_virtual)
+
+        # Ensure both vectors are non-empty and same shape
+        if grad_vec_orig.numel() > 0 and grad_vec_virtual.numel() > 0 and grad_vec_orig.shape == grad_vec_virtual.shape:
+            grad_cos_sim = F.cosine_similarity(grad_vec_orig.unsqueeze(0), grad_vec_virtual.unsqueeze(0)).item()
+            print(f"Cosine similarity between gradients in coarse model: {grad_cos_sim:.4f}")
+        else:
+            print("Gradient vectors not compatible for cosine similarity in coarse model.")
+
+        #Fine model
+        model_orig_fine = render_kwargs_train_orig['network_fine']
+        model_virtual_fine = render_kwargs_train_virtual['network_fine']
+
+        grad_vec_orig_fine= get_grad_vector(model_orig_fine)
+        grad_vec_virtual_fine = get_grad_vector(model_virtual_fine)
+        # Ensure both vectors are non-empty and same shape
+        if grad_vec_orig_fine.numel() > 0 and grad_vec_virtual_fine.numel() > 0 and grad_vec_orig_fine.shape == grad_vec_virtual_fine.shape:
+            grad_cos_sim = F.cosine_similarity(grad_vec_orig_fine.unsqueeze(0), grad_vec_virtual_fine.unsqueeze(0)).item()
+            print(f"Cosine similarity between gradients in fine model: {grad_cos_sim:.4f}")
+        else:
+            print("Gradient vectors not compatible for cosine similarity in fine model.")
+
+
         '''
 
         # Store gradient means across iterations
@@ -1098,16 +1144,19 @@ def train():
 
         log_gradients(model, "coarse model", grad_means_all)
         log_gradients(model_fine, "fine model", grad_means_all)
-
+        '''
    
-        optimizer.step()
+        optimizer_orig.step()
+        optimizer_virtual.step()
 
         # NOTE: IMPORTANT!
         ###   update learning rate   ###
         decay_rate = 0.1
         decay_steps = args.lrate_decay * 1000
         new_lrate = args.lrate * (decay_rate ** (global_step / decay_steps))
-        for param_group in optimizer.param_groups:
+        for param_group in optimizer_orig.param_groups:
+            param_group['lr'] = new_lrate
+        for param_group in optimizer_virtual.param_groups:
             param_group['lr'] = new_lrate
         ################################
 
@@ -1117,15 +1166,26 @@ def train():
 
         # Rest is logging
         if i%args.i_weights==0:
-            path = os.path.join(basedir, expname, '{:06d}.tar'.format(i))
+            path = os.path.join(basedir, expname,'_orig', '{:06d}.tar'.format(i))
             torch.save({
                 'global_step': global_step,
-                'network_fn_state_dict': render_kwargs_train['network_fn'].state_dict(),
-                'network_fine_state_dict': render_kwargs_train['network_fine'].state_dict(),
-                'optimizer_state_dict': optimizer.state_dict(),
+                'network_fn_state_dict': render_kwargs_train_orig['network_fn'].state_dict(),
+                'network_fine_state_dict': render_kwargs_train_orig['network_fine'].state_dict(),
+                'optimizer_state_dict': optimizer_orig.state_dict(),
             }, path)
-            print('Saved checkpoints at', path)
+            print('Saved checkpoints  for original images at', path)
 
+            path = os.path.join(basedir, expname,'_virtual', '{:06d}.tar'.format(i))
+            torch.save({
+                'global_step': global_step,
+                'network_fn_state_dict': render_kwargs_train_virtual['network_fn'].state_dict(),
+                'network_fine_state_dict': render_kwargs_train_virtual['network_fine'].state_dict(),
+                'optimizer_state_dict': optimizer_virtual.state_dict(),
+            }, path)
+            print('Saved checkpoints for virtual images at', path)
+
+
+        '''
         if i%args.i_video==0 and i > 0:
             # Turn on testing mode
             with torch.no_grad():
@@ -1141,14 +1201,19 @@ def train():
             #         rgbs_still, _ = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
             #     render_kwargs_test['c2w_staticcam'] = None
             #     imageio.mimwrite(moviebase + 'rgb_still.mp4', to8b(rgbs_still), fps=30, quality=8)
-
+        '''
         if i%args.i_testset==0 and i > 0:
-            testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
-            os.makedirs(testsavedir, exist_ok=True)
-            print('test poses shape', poses[i_test].shape)
+            testsavedir_orig = os.path.join(basedir, expname,'_orig', 'testset_{:06d}'.format(i))
+            testsavedir_virtual= os.path.join(basedir, expname,'_virtual', 'testset_{:06d}'.format(i))
+            os.makedirs(testsavedir_orig, exist_ok=True)
+            os.makedirs(testsavedir_virtual, exist_ok=True)
+            print('Original test poses shape', poses_orig[i_test].shape)
+            print('virtual test poses shape', poses_virtual[i_test].shape)
             with torch.no_grad():
-                render_path(torch.Tensor(poses[i_test]).to(device), hwf, K, args.chunk, render_kwargs_test, gt_imgs=images[i_test], savedir=testsavedir)
+                render_path(torch.Tensor(poses_orig[i_test]).to(device), hwf, K, args.chunk, render_kwargs_test_orig, gt_imgs=images[i_test], savedir=testsavedir_orig)
+                render_path(torch.Tensor(poses_virtual[i_test]).to(device), hwf, K, args.chunk, render_kwargs_test_virtual, gt_imgs=images[i_test], savedir=testsavedir_virtual)
             print('Saved test set')
+
             '''
             with torch.no_grad():
                 # Get a sample test image
@@ -1166,7 +1231,9 @@ def train():
                 writer.add_image('Test/ground_truth', test_target, i, dataformats='HWC')
             '''
         if i%args.i_print==0:
-            tqdm.write(f"[TRAIN] Iter: {i} Loss: {loss.item()}  PSNR: {psnr.item()}")
+            tqdm.write(f"[TRAIN] Iter: {i} Loss Original: {loss_orig.item()}  PSNR: {psnr_orig.item()}")
+            tqdm.write(f"[TRAIN] Iter: {i} Loss Virtual: {loss_virtual.item()}  PSNR: {psnr_virtual.item()}")
+            
         """
             print(expname, i, psnr.numpy(), loss.numpy(), global_step.numpy())
             print('iter time {:.05f}'.format(dt))
@@ -1211,7 +1278,6 @@ def train():
 
         global_step += 1
         #writer.close()
-    return grad_means_all
 
 if __name__=='__main__':
     # torch.set_default_tensor_type('torch.cuda.FloatTensor')
