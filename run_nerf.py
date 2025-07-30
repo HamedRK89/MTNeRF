@@ -750,10 +750,10 @@ def train():
             file.write(open(args.config, 'r').read())
 
     # Create nerf model
-    render_kwargs_train_orig, render_kwargs_test_orig, start_orig, grad_vars_orig, optimizer_orig = create_nerf(args)
+    render_kwargs_train_orig, render_kwargs_test_orig, start, grad_vars_orig, optimizer_orig = create_nerf(args)
     render_kwargs_train_virtual, render_kwargs_test_virtual, start_virtual, grad_vars_virtual, optimizer_virtual= create_nerf(args)
 
-    global_step = start_orig
+    global_step = start
 
 
     bds_dict = {
@@ -1083,9 +1083,6 @@ def train():
         loss_orig.backward()
         loss_virtual.backward()
     
-        import torch
-        import torch.nn.functional as F
-
         def get_grad_vector(model):
             grads = []
             for param in model.parameters():
