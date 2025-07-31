@@ -7,7 +7,6 @@ venv/
 *.jpeg
 *.yuv
 *.mp4
-*.npy
 *.npz
 *.dae
 dataset/*

@@ -77,3 +77,8 @@ It will create an experiment directory in `./logs`, and store the checkpoints an
 You can create your own experiment configuration to try other datasets.
 
 ## Citation
+
+
+## Progress
+
+Gradients separatley calculated, status: testing
