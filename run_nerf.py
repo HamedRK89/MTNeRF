@@ -1099,7 +1099,7 @@ def train():
                             log_dict[name1] = []
                         log_dict[name1].append((iter_num, sim))
 
-        if i % 1000 == 0:
+        if i % 2 == 0:
             compute_layerwise_grad_cosine(
                 render_kwargs_train_orig['network_fn'],
                 render_kwargs_train_virtual['network_fn'],
