@@ -1270,30 +1270,36 @@ def train():
         global_step += 1
         #writer.close()
     import matplotlib.pyplot as plt
+    if similarity_log_coarse:
+        for layer_name, records in similarity_log_coarse.items():
+            if records:
+                iters, sims = zip(*records)
+                plt.plot(iters, sims, label=layer_name)
 
-    for layer_name, records in similarity_log_coarse.items():
-        iters, sims = zip(*records)
-        plt.plot(iters, sims, label=layer_name)
+                plt.xlabel("Iteration")
+                plt.ylabel("Cosine Similarity")
+                plt.title("Layerwise Gradient Similarity vs Iteration coarse model")
+                plt.legend()
+                plt.grid(True)
+                plt.tight_layout()
+                plt.show()
+                plt.savefig("gradient_similarity_plot.png")  # Save the plot
+                plt.show()  # Show the plot
+    else:
+        print("No similarities were logged.")
 
-    plt.xlabel("Iteration")
-    plt.ylabel("Cosine Similarity")
-    plt.title("Layerwise Gradient Similarity vs Iteration coarse model")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
 
-    for layer_name, records in similarity_log_fine.items():
-        iters, sims = zip(*records)
-        plt.plot(iters, sims, label=layer_name)
+    # for layer_name, records in similarity_log_fine.items():
+    #     iters, sims = zip(*records)
+    #     plt.plot(iters, sims, label=layer_name)
 
-    plt.xlabel("Iteration")
-    plt.ylabel("Cosine Similarity")
-    plt.title("Layerwise Gradient Similarity vs Iteration fine model")
-    plt.legend()
-    plt.grid(True)
-    plt.tight_layout()
-    plt.show()
+    # plt.xlabel("Iteration")
+    # plt.ylabel("Cosine Similarity")
+    # plt.title("Layerwise Gradient Similarity vs Iteration fine model")
+    # plt.legend()
+    # plt.grid(True)
+    # plt.tight_layout()
+    # plt.show()
 
 
 if __name__=='__main__':
