@@ -865,7 +865,7 @@ def train():
             rays_rgbd = torch.Tensor(rays_rgbd).to(device)
             
 
-    N_iters = 1000 + 1
+    N_iters = 200000 + 1
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
@@ -873,7 +873,8 @@ def train():
 
     # Summary writers
     #writer = SummaryWriter(os.path.join(basedir, expname, 'tensorboard'))
-
+    similarity_log_coarse = {}  # key: layer name, value: list of (iteration, similarity)
+    similarity_log_fine = {} 
     start = start + 1
     for i in trange(start, N_iters):
         time0 = time.time()
@@ -1083,8 +1084,7 @@ def train():
         loss_orig.backward()
         loss_virtual.backward()
 
-        similarity_log_coarse = {}  # key: layer name, value: list of (iteration, similarity)
-        similarity_log_fine = {}  
+ 
 
 
         def compute_layerwise_grad_cosine(model_orig, model_virtual, iter_num, log_dict):
@@ -1099,7 +1099,7 @@ def train():
                             log_dict[name1] = []
                         log_dict[name1].append((iter_num, sim))
 
-        if i % 100 == 0:
+        if i % 1000 == 0:
             compute_layerwise_grad_cosine(
                 render_kwargs_train_orig['network_fn'],
                 render_kwargs_train_virtual['network_fn'],
@@ -1269,38 +1269,47 @@ def train():
 
         global_step += 1
         #writer.close()
+    with open('cosine_similarity_coarse.txt', 'w') as f:
+        f.write(str(similarity_log_coarse))
+
     import matplotlib.pyplot as plt
-    if similarity_log_coarse:
-        for layer_name, records in similarity_log_coarse.items():
-            print('layer name: ', layer_name,'records: ', records)
-            if records:
-                iters, sims = zip(*records)
-                plt.plot(iters, sims, label=layer_name)
-            else:
-                print('no record')
-        plt.xlabel("Iteration")
-        plt.ylabel("Cosine Similarity")
-        plt.title("Layerwise Gradient Similarity vs Iteration coarse model")
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
-        plt.savefig("gradient_similarity_plot.png")  # Save the plot
-    else:
-        print("No similarities were logged.")
+    plt.figure()
+    for layer_name, records in similarity_log_coarse.items():
+        if records and layer_name.endswith('t'):
+            iters, sims = zip(*records)
+            plt.plot(iters, sims, label=layer_name)
+            
+    
+    plt.xlabel("Iteration")
+    plt.ylabel("Cosine Similarity")
+    plt.title("Layerwise Gradient Similarity vs Iteration coarse model")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    #plt.show()
+    plt.savefig("gradient_similarity_plot_coarse.png")
+    plt.close()
 
+    with open('cosine_similarity_fine.txt', 'w') as f:
+        f.write(str(similarity_log_fine))
 
-    # for layer_name, records in similarity_log_fine.items():
-    #     iters, sims = zip(*records)
-    #     plt.plot(iters, sims, label=layer_name)
+    import matplotlib.pyplot as plt
+    plt.figure()
+    for layer_name, records in similarity_log_fine.items():
+        if records and layer_name.endswith('t'):
+            iters, sims = zip(*records)
+            
+    plt.plot(iters, sims, label=layer_name)
+    plt.xlabel("Iteration")
+    plt.ylabel("Cosine Similarity")
+    plt.title("Layerwise Gradient Similarity vs Iteration fine model")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig("gradient_similarity_plot_fine.png")
+    #plt.show()
+    plt.close()
 
-    # plt.xlabel("Iteration")
-    # plt.ylabel("Cosine Similarity")
-    # plt.title("Layerwise Gradient Similarity vs Iteration fine model")
-    # plt.legend()
-    # plt.grid(True)
-    # plt.tight_layout()
-    # plt.show()
 
 
 if __name__=='__main__':
