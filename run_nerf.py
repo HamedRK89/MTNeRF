@@ -1083,7 +1083,8 @@ def train():
         loss_orig.backward()
         loss_virtual.backward()
 
-        similarity_log = {}  # key: layer name, value: list of (iteration, similarity)
+        similarity_log_coarse = {}  # key: layer name, value: list of (iteration, similarity)
+        similarity_log_fine = {}  
 
 
         def compute_layerwise_grad_cosine(model_orig, model_virtual, iter_num, log_dict):
@@ -1103,23 +1104,14 @@ def train():
                 render_kwargs_train_orig['network_fn'],
                 render_kwargs_train_virtual['network_fn'],
                 i,
-                similarity_log
+                similarity_log_coarse
                 )
-
-
-            # Coarse model
-        compute_layerwise_grad_cosine(
-            render_kwargs_train_orig['network_fn'],
-            render_kwargs_train_virtual['network_fn'],
-            model_name="coarse model"
-        )
-
-        # Fine model
-        compute_layerwise_grad_cosine(
-            render_kwargs_train_orig['network_fine'],
-            render_kwargs_train_virtual['network_fine'],
-            model_name="fine model"
-        )
+            compute_layerwise_grad_cosine(
+                render_kwargs_train_orig['network_fine'],
+                render_kwargs_train_virtual['network_fine'],
+                i,
+                similarity_log_fine
+                )
 
 
 
@@ -1279,13 +1271,25 @@ def train():
         #writer.close()
     import matplotlib.pyplot as plt
 
-    for layer_name, records in similarity_log.items():
+    for layer_name, records in similarity_log_coarse.items():
         iters, sims = zip(*records)
         plt.plot(iters, sims, label=layer_name)
 
     plt.xlabel("Iteration")
     plt.ylabel("Cosine Similarity")
-    plt.title("Layerwise Gradient Similarity vs Iteration")
+    plt.title("Layerwise Gradient Similarity vs Iteration coarse model")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
+
+    for layer_name, records in similarity_log_fine.items():
+        iters, sims = zip(*records)
+        plt.plot(iters, sims, label=layer_name)
+
+    plt.xlabel("Iteration")
+    plt.ylabel("Cosine Similarity")
+    plt.title("Layerwise Gradient Similarity vs Iteration fine model")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
