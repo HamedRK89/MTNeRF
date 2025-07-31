@@ -1093,33 +1093,64 @@ def train():
             else:
                 return torch.tensor([])  # empty in case no gradients
 
-        #Coarse model
-        # Get gradient vectors
-        model_orig = render_kwargs_train_orig['network_fn']
-        model_virtual = render_kwargs_train_virtual['network_fn']
 
-        grad_vec_orig = get_grad_vector(model_orig)
-        grad_vec_virtual = get_grad_vector(model_virtual)
 
-        # Ensure both vectors are non-empty and same shape
-        if grad_vec_orig.numel() > 0 and grad_vec_virtual.numel() > 0 and grad_vec_orig.shape == grad_vec_virtual.shape:
-            grad_cos_sim = F.cosine_similarity(grad_vec_orig.unsqueeze(0), grad_vec_virtual.unsqueeze(0)).item()
-            print(f"Cosine similarity between gradients in coarse model: {grad_cos_sim:.4f}")
-        else:
-            print("Gradient vectors not compatible for cosine similarity in coarse model.")
+        def compute_layerwise_grad_cosine(model_orig, model_virtual, model_name="model"):
+            print(f"\nLayerwise gradient cosine similarity for {model_name}:")
+            for (name1, p1), (name2, p2) in zip(model_orig.named_parameters(), model_virtual.named_parameters()):
+                if p1.grad is not None and p2.grad is not None:
+                    g1 = p1.grad.view(-1)
+                    g2 = p2.grad.view(-1)
 
-        #Fine model
-        model_orig_fine = render_kwargs_train_orig['network_fine']
-        model_virtual_fine = render_kwargs_train_virtual['network_fine']
+                    if g1.shape == g2.shape and g1.numel() > 0:
+                        sim = F.cosine_similarity(g1.unsqueeze(0), g2.unsqueeze(0)).item()
+                        print(f"{name1:40s} | cosine similarity: {sim:+.4f}")
+                    else:
+                        print(f"{name1:40s} | Gradient shape mismatch")
+                else:
+                    print(f"{name1:40s} | Missing gradient")
+            # Coarse model
+        compute_layerwise_grad_cosine(
+            render_kwargs_train_orig['network_fn'],
+            render_kwargs_train_virtual['network_fn'],
+            model_name="coarse model"
+        )
 
-        grad_vec_orig_fine= get_grad_vector(model_orig_fine)
-        grad_vec_virtual_fine = get_grad_vector(model_virtual_fine)
-        # Ensure both vectors are non-empty and same shape
-        if grad_vec_orig_fine.numel() > 0 and grad_vec_virtual_fine.numel() > 0 and grad_vec_orig_fine.shape == grad_vec_virtual_fine.shape:
-            grad_cos_sim = F.cosine_similarity(grad_vec_orig_fine.unsqueeze(0), grad_vec_virtual_fine.unsqueeze(0)).item()
-            print(f"Cosine similarity between gradients in fine model: {grad_cos_sim:.4f}")
-        else:
-            print("Gradient vectors not compatible for cosine similarity in fine model.")
+        # Fine model
+        compute_layerwise_grad_cosine(
+            render_kwargs_train_orig['network_fine'],
+            render_kwargs_train_virtual['network_fine'],
+            model_name="fine model"
+        )
+
+
+        # #Coarse model
+        # # Get gradient vectors
+        # model_orig = render_kwargs_train_orig['network_fn']
+        # model_virtual = render_kwargs_train_virtual['network_fn']
+
+        # grad_vec_orig = get_grad_vector(model_orig)
+        # grad_vec_virtual = get_grad_vector(model_virtual)
+
+        # # Ensure both vectors are non-empty and same shape
+        # if grad_vec_orig.numel() > 0 and grad_vec_virtual.numel() > 0 and grad_vec_orig.shape == grad_vec_virtual.shape:
+        #     grad_cos_sim = F.cosine_similarity(grad_vec_orig.unsqueeze(0), grad_vec_virtual.unsqueeze(0)).item()
+        #     print(f"Cosine similarity between gradients in coarse model: {grad_cos_sim:.4f}")
+        # else:
+        #     print("Gradient vectors not compatible for cosine similarity in coarse model.")
+
+        # #Fine model
+        # model_orig_fine = render_kwargs_train_orig['network_fine']
+        # model_virtual_fine = render_kwargs_train_virtual['network_fine']
+
+        # grad_vec_orig_fine= get_grad_vector(model_orig_fine)
+        # grad_vec_virtual_fine = get_grad_vector(model_virtual_fine)
+        # # Ensure both vectors are non-empty and same shape
+        # if grad_vec_orig_fine.numel() > 0 and grad_vec_virtual_fine.numel() > 0 and grad_vec_orig_fine.shape == grad_vec_virtual_fine.shape:
+        #     grad_cos_sim = F.cosine_similarity(grad_vec_orig_fine.unsqueeze(0), grad_vec_virtual_fine.unsqueeze(0)).item()
+        #     print(f"Cosine similarity between gradients in fine model: {grad_cos_sim:.4f}")
+        # else:
+        #     print("Gradient vectors not compatible for cosine similarity in fine model.")
 
 
         '''
