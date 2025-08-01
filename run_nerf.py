@@ -865,7 +865,7 @@ def train():
             rays_rgbd = torch.Tensor(rays_rgbd).to(device)
             
 
-    N_iters = 200000 + 1
+    N_iters = 100000 + 1
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
@@ -1157,7 +1157,7 @@ def train():
 
         # Rest is logging
         if i%args.i_weights==0:
-            path = os.path.join(basedir, expname,'_orig', '{:06d}.tar'.format(i))
+            path = os.path.join(basedir, expname, '_orig_{:06d}.tar'.format(i))
             torch.save({
                 'global_step': global_step,
                 'network_fn_state_dict': render_kwargs_train_orig['network_fn'].state_dict(),
@@ -1166,7 +1166,7 @@ def train():
             }, path)
             print('Saved checkpoints  for original images at', path)
 
-            path = os.path.join(basedir, expname,'_virtual', '{:06d}.tar'.format(i))
+            path = os.path.join(basedir, expname, '_virtual_{:06d}.tar'.format(i))
             torch.save({
                 'global_step': global_step,
                 'network_fn_state_dict': render_kwargs_train_virtual['network_fn'].state_dict(),
@@ -1201,8 +1201,8 @@ def train():
             print('Original test poses shape', poses_orig[i_test].shape)
             print('virtual test poses shape', poses_virtual[i_test].shape)
             with torch.no_grad():
-                render_path(torch.Tensor(poses_orig[i_test]).to(device), hwf, K, args.chunk, render_kwargs_test_orig, gt_imgs=images[i_test], savedir=testsavedir_orig)
-                render_path(torch.Tensor(poses_virtual[i_test]).to(device), hwf, K, args.chunk, render_kwargs_test_virtual, gt_imgs=images[i_test], savedir=testsavedir_virtual)
+                render_path(torch.Tensor(poses_orig[i_test]).to(device), hwf, K, args.chunk, render_kwargs_test_orig, gt_imgs=images_orig[i_test], savedir=testsavedir_orig)
+                #render_path(torch.Tensor(poses_virtual[i_test]).to(device), hwf, K, args.chunk, render_kwargs_test_virtual, gt_imgs=images_[i_test], savedir=testsavedir_virtual)
             print('Saved test set')
 
             '''
@@ -1298,6 +1298,7 @@ def train():
     for layer_name, records in similarity_log_fine.items():
         if records and layer_name.endswith('t'):
             iters, sims = zip(*records)
+            plt.plot(iters, sims, label=layer_name)
             
     plt.plot(iters, sims, label=layer_name)
     plt.xlabel("Iteration")
