@@ -1,12 +1,12 @@
 import numpy as np
 
-data = np.load('000.npz')
+data = np.load('poses_bounds_9_9.npy')
 
-# List all arrays stored in the file
-print("Keys:", data.files)
+data_orig = data[0:9]
+data_virtual = data[9:18]
 
-# Print each array
-for key in data.files:
-    print(f"{key}:\n{data[key]}")
-    if key=='depth':
-        print('****************', np.max(data[key]))
+print(data_orig.shape)
+print(data_virtual.shape)
+
+np.save('poses_bounds_orig.npy', data_orig)
+np.save('poses_bounds_virtual.npy', data_virtual)
