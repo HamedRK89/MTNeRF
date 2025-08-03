@@ -808,18 +808,22 @@ def train():
             if args.depth_supervision:
                 print(f"Depths Shape: {depths.shape}")
         '''
+
+
         if not args.depth_supervision:
             print('done, concats')
             rays_rgb_orig = np.concatenate([rays_orig, images_orig[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
             rays_rgb_orig = np.transpose(rays_rgb_orig, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
-            rays_rgb_orig = np.stack([rays_rgb_orig[i] for i in i_train[0:num_orig-1]], 0) # train images only, Needs to be corrected and generalized later!
+            print('-------------------', len(rays_rgb_orig))  # should be >= max(i_train)
+            print('-------------------', max(i_train))        # must be < len(rays_rgb_orig)
+            rays_rgb_orig = np.stack([rays_rgb_orig[i] for i in i_train[:7]], 0) # train images only, Needs to be corrected and generalized later!
             rays_rgb_orig = np.reshape(rays_rgb_orig, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
             rays_rgb_orig = rays_rgb_orig.astype(np.float32)
             np.random.shuffle(rays_rgb_orig)
 
             rays_rgb_virtual = np.concatenate([rays_virtual, images_virtual[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
             rays_rgb_virtual = np.transpose(rays_rgb_virtual, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
-            rays_rgb_virtual = np.stack([rays_rgb_virtual[i] for i in i_train[:4]], 0) # train images only
+            rays_rgb_virtual = np.stack([rays_rgb_virtual[i] for i in i_train[:7]], 0) # train images only
             rays_rgb_virtual = np.reshape(rays_rgb_virtual, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
             rays_rgb_virtual = rays_rgb_virtual.astype(np.float32)
             np.random.shuffle(rays_rgb_virtual)
@@ -1287,7 +1291,7 @@ def train():
     plt.grid(True)
     plt.tight_layout()
     #plt.show()
-    plt.savefig("gradient_similarity_plot_coarse.png")
+    plt.savefig("gradient_similarity_plot_coarse_9.png")
     plt.close()
 
     with open('cosine_similarity_fine.txt', 'w') as f:
@@ -1307,7 +1311,7 @@ def train():
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig("gradient_similarity_plot_fine.png")
+    plt.savefig("gradient_similarity_plot_fine_9.png")
     #plt.show()
     plt.close()
 
