@@ -645,8 +645,8 @@ def train():
         print('Number of original images: ', num_orig)
         print(images_orig.shape, poses_orig.shape)
 
-        images_virtual = images_virtual[:num_orig, ]
-        poses_virtual = poses_virtual[:num_orig, ]
+        #images_virtual = images_virtual[:num_orig, ]
+        #poses_virtual = poses_virtual[:num_orig, ]
 
         if args.depth_supervision:
             depths = _load_depth_data(args.datadir, args.factor, load_depth=True) 
@@ -655,6 +655,7 @@ def train():
         hwf = poses_orig[0,:3,-1]
         poses_orig = poses_orig[:,:3,:4]
         poses_virtual = poses_virtual[:,:3,:4]
+        print("Virtual poses shape:----------> ", poses_virtual.shape)
         #print(f'Loaded llff, images shape: {images.shape}, render poses shape: {render_poses.shape}, hwf: {hwf}, data dir: {args.datadir}')
         
         if args.i_test is not None:
@@ -802,9 +803,11 @@ def train():
         rays_orig = np.stack([get_rays_np(H, W, K, p) for p in poses_orig[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
         rays_virtual = np.stack([get_rays_np(H, W, K, p) for p in poses_virtual[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
 
-        # Rays shape:   [N, ro+rd, H, W, 3]
-        # Images shape: [N, H, W, 3]
+        # Rays shape:   [N, ro+rd, H, W, 3] --> Rays_orig shape: ?? // Rays_virtual shape: ??
+        # Images shape: [N, H, W, 3] --> Images_orig shape: ?? // Images_virtual shape: ??
         # Depths shape: [N, H, W]
+        print(f"SHAPES:\n\tRays_orig Shape: {rays_orig.shape}, Images_orig Shape: {images_orig.shape}")
+        print(f"SHAPES:\n\tRays Shape: {rays_virtual.shape}, Images_virtual Shape: {images_virtual.shape}")
         '''
         if args.debug:
             print(f"SHAPES:\n\tRays Shape: {rays.shape}, Images Shape: {images.shape}")
@@ -822,7 +825,9 @@ def train():
 
             rays_rgb_virtual = np.concatenate([rays_virtual, images_virtual[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
             rays_rgb_virtual = np.transpose(rays_rgb_virtual, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
-            rays_rgb_virtual = np.stack([rays_rgb_virtual[i] for i in i_train[:4]], 0) # train images only
+            print("---------*********************", rays_rgb_virtual.shape)
+            print(i_train[num_orig-1:total_num-1].shape)
+            rays_rgb_virtual = np.stack([rays_rgb_virtual[i] for i in i_train[:8]], 0) # train images only
             rays_rgb_virtual = np.reshape(rays_rgb_virtual, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
             rays_rgb_virtual = rays_rgb_virtual.astype(np.float32)
             np.random.shuffle(rays_rgb_virtual)
@@ -899,13 +904,13 @@ def train():
             # ---- SAMPLE BATCH FROM ORIGINAL ----
                 batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig];  i_orig = (i_orig+N_rand_orig)%num_orig
                 batch_orig= torch.transpose(batch_orig, 0, 1)
-                rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+                batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
                 i_orig = (i_orig + N_rand_orig) % num_orig
 
                 # ---- SAMPLE BATCH FROM AUGMENTED ----
-                batch_a = rays_rgb_virtual[i_virtual:i_virtual+N_rand_virtual];  i_virtual = (i_virtual+N_rand_virtual)%num_virtual
+                batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_rand_virtual];  i_virtual = (i_virtual+N_rand_virtual)%num_virtual
                 batch_virtual= torch.transpose(batch_virtual, 0, 1)
-                rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
+                batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
                 i_virtual = (i_virtual + N_rand_virtual) % num_virtual
             else:
                 if use_batching:
@@ -962,24 +967,24 @@ def train():
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
         #####  Core optimization loop  #####
-        rgb_orig, disp, acc, depth, extras = render(H, W, K, chunk=args.chunk, rays=batch_orig,
+        rgb_orig, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
-        rgb_virtual, disp, acc, depth, extras = render(H, W, K, chunk=args.chunk, rays=batch_virtual,
+        rgb_virtual, disp, acc, depth, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
         
         optimizer.zero_grad()
         if not args.depth_supervision:
             img_loss_orig = img2mse(rgb_orig, target_orig)
-            img_loss_virtual = img2mse(rgb_orig, target_virtual)
-            trans = extras['raw'][...,-1]
+            img_loss_virtual = img2mse(rgb_virtual, target_virtual)
+            trans = extras_orig['raw'][...,-1]
             loss = img_loss_orig+args.landa*img_loss_virtual
-            psnr = mse2psnr(img_loss)
+            psnr = mse2psnr(img_loss_orig)
 
-            if 'rgb0' in extras:
-                img_loss0_orig = img2mse(extras['rgb0'], target_orig)
-                img_loss0_virtual = img2mse(extras['rgb0'], target_virtual)
+            if 'rgb0' in extras_orig:
+                img_loss0_orig = img2mse(extras_orig['rgb0'], target_orig)
+                img_loss0_virtual = img2mse(extras_virtual['rgb0'], target_virtual)
 
                 loss = loss + img_loss0_orig+img_loss0_virtual
                 psnr0_orig= mse2psnr(img_loss0_orig)
@@ -1125,9 +1130,9 @@ def train():
         if i%args.i_testset==0 and i > 0:
             testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
             os.makedirs(testsavedir, exist_ok=True)
-            print('test poses shape', poses[i_test].shape)
+            print('test poses shape', poses_orig[i_test].shape)
             with torch.no_grad():
-                render_path(torch.Tensor(poses[i_test]).to(device), hwf, K, args.chunk, render_kwargs_test, gt_imgs=images[i_test], savedir=testsavedir)
+                render_path(torch.Tensor(poses_orig[i_test]).to(device), hwf, K, args.chunk, render_kwargs_test, gt_imgs=images_orig[i_test], savedir=testsavedir)
             print('Saved test set')
             '''
             with torch.no_grad():
