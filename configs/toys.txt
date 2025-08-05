@@ -1,4 +1,4 @@
-expname = toys
+expname = toys_lambda_0.8
 basedir = ./logs
 datadir = ./dataset/toys
 dataset_type = llff
