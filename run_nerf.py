@@ -201,205 +201,91 @@ def render_path(render_poses, hwf, K, chunk, render_kwargs, gt_imgs=None, savedi
     return rgbs, disps, depths
 
 
-```python
-# --- create_nerf.py ---
-import torch
-import torch.nn as nn
+def create_nerf(args):
+    """Instantiate NeRF's MLP model.
+    """
+    embed_fn, input_ch = get_embedder(args.multires, args.i_embed)
 
-class NeRFBackbone(nn.Module):
-    def __init__(self, D, W, input_ch, input_ch_views, use_viewdirs):
-        super().__init__()
-        self.layers = nn.ModuleList()
-        in_ch = input_ch + input_ch_views
-        for i in range(D):
-            self.layers.append(nn.Linear(in_ch if i==0 else W, W))
-            in_ch = W
-            if i in [4]:
-                in_ch += input_ch + input_ch_views
-        self.out_dim = W  # output dim for final head
-    def forward(self, x):
-        h = x
-        for i, layer in enumerate(self.layers):
-            h = torch.relu(layer(h))
-            if i in [4]:
-                h = torch.cat([h, x], -1)
-        return h
-
-
-def create_nerf(args, device):
-    # 1. Embedders
-    embed_fn,    input_ch       = get_embedder(args.multires, args.i_embed)
-    embeddirs_fn, input_ch_views = (None, 0)
+    input_ch_views = 0
+    embeddirs_fn = None
     if args.use_viewdirs:
         embeddirs_fn, input_ch_views = get_embedder(args.multires_views, args.i_embed)
+    output_ch = 5 if args.N_importance > 0 else 4
+    skips = [4]
+    model = MultiHeadNeRF(D=args.netdepth, W=args.netwidth,
+                input_ch=input_ch, output_ch=output_ch, skips=skips,
+                input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs).to(device)
 
-    # 2. Shared backbone
-    backbone = NeRFBackbone(
-        D=args.netdepth, W=args.netwidth,
-        input_ch=input_ch, input_ch_views=input_ch_views,
-        use_viewdirs=args.use_viewdirs
-    ).to(device)
+    grad_vars = list(model.parameters())
 
-    # 3. Two heads
-    out_ch = 4 + (1 if args.N_importance>0 else 0)
-    head_orig    = nn.Linear(backbone.out_dim, out_ch).to(device)
-    head_virtual = nn.Linear(backbone.out_dim, out_ch).to(device)
-
-    # 4. (Optional) fine heads
-    head_fine_orig    = None
-    head_fine_virtual = None
+    model_fine = None
     if args.N_importance > 0:
-        head_fine_orig    = nn.Linear(backbone.out_dim, out_ch).to(device)
-        head_fine_virtual = nn.Linear(backbone.out_dim, out_ch).to(device)
+        model_fine = MultiHeadNeRF(D=args.netdepth_fine, W=args.netwidth_fine,
+                        input_ch=input_ch, output_ch=output_ch, skips=skips,
+                        input_ch_views=input_ch_views, use_viewdirs=args.use_viewdirs).to(device)
+        grad_vars += list(model_fine.parameters())
 
-    # 5. Collect params + optimizer
-    grad_vars = list(backbone.parameters())  \
-        + list(head_orig.parameters())       \
-        + list(head_virtual.parameters())    \
-        + (list(head_fine_orig.parameters())    if head_fine_orig    else []) \
-        + (list(head_fine_virtual.parameters()) if head_fine_virtual else [])
-    optimizer = torch.optim.Adam(grad_vars, lr=args.lrate, betas=(0.9,0.999))
 
-    # 6. Checkpoint loading (unchanged)
+# two query functions, one per head
+    def make_qfn(net):
+        return lambda inputs, viewdirs, head, **kwargs: run_network(
+            inputs, viewdirs, net, head=head,
+            embed_fn=embed_fn, embeddirs_fn=embeddirs_fn,
+            netchunk=args.netchunk, **kwargs
+        )
+
+    qfn_orig = make_qfn(model)
+    qfn_virt = make_qfn(model)
+    qfn_orig_f = make_qfn(model_fine) if model_fine else None
+    qfn_virt_f = make_qfn(model_fine) if model_fine else None
+
+    optimizer = torch.optim.Adam(grad_vars, lr=args.lrate, betas=(0.9, 0.999))
     start = 0
-    # [load ckpts into backbone and heads as before]
+    basedir, expname = args.basedir, args.expname
 
-    # 7. network_query_fn uses flags
-    def network_query_fn(inputs, viewdirs, is_virtual=False, fine=False):
-        feats = run_backbone(inputs, viewdirs, backbone, embed_fn, embeddirs_fn, netchunk=args.netchunk)
-        if fine and args.N_importance>0:
-            head = head_fine_virtual if is_virtual else head_fine_orig
-        else:
-            head = head_virtual if is_virtual else head_orig
-        return head(feats)
+    ##########################
 
-    # 8. pack render kwargs
-    render_kwargs_train = dict(
-        network_query_fn=network_query_fn,
-        perturb=args.perturb,
-        N_importance=args.N_importance,
-        N_samples=args.N_samples,
-        use_viewdirs=args.use_viewdirs,
-        white_bkgd=args.white_bkgd,
-        raw_noise_std=args.raw_noise_std,
-    )
+    # Load checkpoints
+    if args.ft_path is not None and args.ft_path!='None':
+        ckpts = [args.ft_path]
+    else:
+        ckpts = [os.path.join(basedir, expname, f) for f in sorted(os.listdir(os.path.join(basedir, expname))) if 'tar' in f]
+
+    print('Found ckpts', ckpts)
+    if len(ckpts) > 0 and not args.no_reload:
+        ckpt_path = ckpts[-1]
+        print('Reloading from', ckpt_path)
+        ckpt = torch.load(ckpt_path)
+
+        start = ckpt['global_step']
+        optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+
+        # Load model
+        model.load_state_dict(ckpt['network_fn_state_dict'])
+        if model_fine is not None:
+            model_fine.load_state_dict(ckpt['network_fine_state_dict'])
+
+    ##########################
+
+    render_kwargs_train = {
+        'perturb'           : args.perturb,
+        'N_importance'      : args.N_importance,
+        'network_fn_orig'   : qfn_orig,
+        'network_fn_virt'   : qfn_virt,
+        'network_fine_orig' : qfn_orig_f,
+        'network_fine_virt' : qfn_virt_f,
+        'N_samples'         : args.N_samples,
+        'use_viewdirs'      : args.use_viewdirs,
+        'white_bkgd'        : args.white_bkgd,
+        'raw_noise_std'     : args.raw_noise_std,
+    }
     if args.dataset_type!='llff' or args.no_ndc:
         render_kwargs_train.update(ndc=False, lindisp=args.lindisp)
-    render_kwargs_test = {**render_kwargs_train, 'perturb':False, 'raw_noise_std':0.}
+
+    render_kwargs_test = {k: render_kwargs_train[k] for k in render_kwargs_train}
+    render_kwargs_test.update(perturb=False, raw_noise_std=0.)
 
     return render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer
-
-
-class NeRFBackbone(nn.Module):
-    def __init__(self, D, W, input_ch, input_ch_views, use_viewdirs):
-        super().__init__()
-        self.layers = nn.ModuleList()
-        in_ch = input_ch + input_ch_views
-        for i in range(D):
-            self.layers.append(nn.Linear(in_ch if i==0 else W, W))
-            in_ch = W
-            if i in [4]:
-                in_ch += input_ch + input_ch_views
-        self.out_dim = W  # output dim for final head
-    def forward(self, x):
-        h = x
-        for i, layer in enumerate(self.layers):
-            h = torch.relu(layer(h))
-            if i in [4]:
-                h = torch.cat([h, x], -1)
-        return h
-
-
-def create_nerf(args, device):
-    # 1. Embedders
-    embed_fn,    input_ch       = get_embedder(args.multires, args.i_embed)
-    embeddirs_fn, input_ch_views = (None, 0)
-    if args.use_viewdirs:
-        embeddirs_fn, input_ch_views = get_embedder(args.multires_views, args.i_embed)
-
-    # 2. Shared backbone
-    backbone = NeRFBackbone(
-        D=args.netdepth, W=args.netwidth,
-        input_ch=input_ch, input_ch_views=input_ch_views,
-        use_viewdirs=args.use_viewdirs
-    ).to(device)
-
-    # 3. Two heads
-    out_ch = 4 + (1 if args.N_importance>0 else 0)
-    head_orig    = nn.Linear(backbone.out_dim, out_ch).to(device)
-    head_virtual = nn.Linear(backbone.out_dim, out_ch).to(device)
-
-    # 4. (Optional) fine heads
-    head_fine_orig    = None
-    head_fine_virtual = None
-    if args.N_importance > 0:
-        head_fine_orig    = nn.Linear(backbone.out_dim, out_ch).to(device)
-        head_fine_virtual = nn.Linear(backbone.out_dim, out_ch).to(device)
-
-    # 5. Collect params + optimizer
-    grad_vars = list(backbone.parameters())  \
-        + list(head_orig.parameters())       \
-        + list(head_virtual.parameters())    \
-        + (list(head_fine_orig.parameters())    if head_fine_orig    else []) \
-        + (list(head_fine_virtual.parameters()) if head_fine_virtual else [])
-    optimizer = torch.optim.Adam(grad_vars, lr=args.lrate, betas=(0.9,0.999))
-
-    # 6. Checkpoint loading (unchanged)
-    start = 0
-    # [load ckpts into backbone and heads as before]
-
-    # 7. network_query_fn uses flags
-    def network_query_fn(inputs, viewdirs, is_virtual=False, fine=False):
-        feats = run_backbone(inputs, viewdirs, backbone, embed_fn, embeddirs_fn, netchunk=args.netchunk)
-        if fine and args.N_importance>0:
-            head = head_fine_virtual if is_virtual else head_fine_orig
-        else:
-            head = head_virtual if is_virtual else head_orig
-        return head(feats)
-
-    # 8. pack render kwargs
-    render_kwargs_train = dict(
-        network_query_fn=network_query_fn,
-        perturb=args.perturb,
-        N_importance=args.N_importance,
-        N_samples=args.N_samples,
-        use_viewdirs=args.use_viewdirs,
-        white_bkgd=args.white_bkgd,
-        raw_noise_std=args.raw_noise_std,
-    )
-    if args.dataset_type!='llff' or args.no_ndc:
-        render_kwargs_train.update(ndc=False, lindisp=args.lindisp)
-    render_kwargs_test = {**render_kwargs_train, 'perturb':False, 'raw_noise_std':0.}
-
-    return render_kwargs_train, render_kwargs_test, start, grad_vars, optimizer
-
-# --- train.py snippet ---
-
-# inside your training loop, after sampling rays_orig and rays_virtual:
-# rays_orig: [B,2,3], target_orig: [B,3]
-# rays_virtual: [B,2,3], target_virtual: [B,3]
-
-# forward through shared backbone + correct head
-rgb_orig = network_query_fn(
-    rays_orig_inputs, rays_orig_viewdirs,
-    is_virtual=False, fine=False
-)
-rgb_virtual = network_query_fn(
-    rays_virtual_inputs, rays_virtual_viewdirs,
-    is_virtual=True, fine=False
-)
-
-# compute losses
-loss_o = img2mse(rgb_orig, target_orig)
-loss_v = img2mse(rgb_virtual, target_virtual)
-loss   = loss_o + args.landa * loss_v
-
-# backward
-optimizer.zero_grad()
-loss.backward()
-optimizer.step()
-```
-
 
 
 def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=False):
@@ -644,7 +530,7 @@ def config_parser():
                         help='do not reload weights from saved ckpt')
     parser.add_argument("--ft_path", type=str, default=None, 
                         help='specific weights npy file to reload for coarse network')
-    parser.add_argument("--landa", type=float, default=.8, 
+    parser.add_argument("--landa", type=float, default=0.8, 
                         help='Regularization parameter for downweighting augmented images loss due to their groundtruth noise')
 
     # rendering options
@@ -910,11 +796,14 @@ def train():
     # Prepare raybatch tensor if batching random rays
 
     N_rand_orig = int(args.N_rand * (num_orig/total_num))
+    print('num_orig: ', num_orig,"num_virtual",num_virtual, "total_num: ", total_num, "N_rand: ",args.N_rand,"num_rand_orig:", N_rand_orig)
     N_rand_virtual = args.N_rand - N_rand_orig
     use_batching = not args.no_batching
     if use_batching:
         # For random ray batching
         print('get rays')
+        print("****************---************ Poses orig: ", poses_orig)
+        print("****************---************ Poses virtual: ", poses_virtual)
         rays_orig = np.stack([get_rays_np(H, W, K, p) for p in poses_orig[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
         rays_virtual = np.stack([get_rays_np(H, W, K, p) for p in poses_virtual[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
 
@@ -922,7 +811,7 @@ def train():
         # Images shape: [N, H, W, 3] --> Images_orig shape: ?? // Images_virtual shape: ??
         # Depths shape: [N, H, W]
         print(f"SHAPES:\n\tRays_orig Shape: {rays_orig.shape}, Images_orig Shape: {images_orig.shape}")
-        print(f"SHAPES:\n\tRays Shape: {rays_virtual.shape}, Images_virtual Shape: {images_virtual.shape}")
+        print(f"SHAPES:\n\tRays_virtual Shape: {rays_virtual.shape}, Images_virtual Shape: {images_virtual.shape}")
         '''
         if args.debug:
             print(f"SHAPES:\n\tRays Shape: {rays.shape}, Images Shape: {images.shape}")
@@ -989,7 +878,7 @@ def train():
             rays_rgbd = torch.Tensor(rays_rgbd).to(device)
             
 
-    N_iters = 100000 + 1
+    N_iters = 200000 + 1
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)
@@ -1016,17 +905,34 @@ def train():
             #         rand_idx = torch.randperm(rays_rgb.shape[0])
             #         rays_rgb = rays_rgb[rand_idx]
             #         i_batch = 0
+
             # ---- SAMPLE BATCH FROM ORIGINAL ----
-                batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig];  i_orig = (i_orig+N_rand_orig)%num_orig
-                batch_orig= torch.transpose(batch_orig, 0, 1)
-                batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
-                i_orig = (i_orig + N_rand_orig) % num_orig
+                if (i_orig + N_rand_orig)<=rays_rgb_orig.shape[0]:
+                    batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig]
+                    batch_orig= torch.transpose(batch_orig, 0, 1)
+                    batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+                    #print("orig", i_orig, i_orig+N_rand_orig)
+                    i_orig = (i_orig + N_rand_orig)
+                else: 
+                    batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig]
+                    batch_orig= torch.transpose(batch_orig, 0, 1)
+                    batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
 
                 # ---- SAMPLE BATCH FROM AUGMENTED ----
-                batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_rand_virtual];  i_virtual = (i_virtual+N_rand_virtual)%num_virtual
+                batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_rand_virtual]
                 batch_virtual= torch.transpose(batch_virtual, 0, 1)
                 batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
-                i_virtual = (i_virtual + N_rand_virtual) % num_virtual
+                #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
+                i_virtual = (i_virtual + N_rand_virtual)
+
+
+                if i_virtual >= rays_rgb_virtual.shape[0]:
+                     print("Shuffle data after an epoch!")
+                     rand_idx = torch.randperm(rays_rgb_orig.shape[0])
+                     rays_rgb_orig = rays_rgb_orig[rand_idx]
+                     rays_rgb_virtual = rays_rgb_virtual[rand_idx]
+                     i_orig = 0
+                     i_virtual=0
             else:
                 if use_batching:
                     # Random over all images
@@ -1082,10 +988,10 @@ def train():
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
         #####  Core optimization loop  #####
-        rgb_orig, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,
+        rgb_orig, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,network_query_fn=render_kwargs_train['network_fn_orig'],head='orig',
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
-        rgb_virtual, disp, acc, depth, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,
+        rgb_virtual, disp, acc, depth, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,network_query_fn=render_kwargs_train['network_fn_virt'],head='virt',
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
         
@@ -1095,7 +1001,7 @@ def train():
             img_loss_virtual = img2mse(rgb_virtual, target_virtual)
             trans = extras_orig['raw'][...,-1]
             loss = img_loss_orig+args.landa*img_loss_virtual
-            psnr = mse2psnr(img_loss_orig)
+            psnr = mse2psnr(loss)
 
             if 'rgb0' in extras_orig:
                 img_loss0_orig = img2mse(extras_orig['rgb0'], target_orig)
