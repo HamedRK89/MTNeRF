@@ -797,7 +797,7 @@ def train():
 
     # Prepare raybatch tensor if batching random rays
 
-    N_rand_orig = int(args.N_rand * (num_orig/total_num))
+    N_rand_orig = int(args.N_rand * ((num_orig-num_test)/(total_num-num_test)))
     #print('num_orig: ', num_orig,"num_virtual",num_virtual, "total_num: ", total_num, "N_rand: ",args.N_rand,"num_rand_orig:", N_rand_orig)
     N_rand_virtual = args.N_rand - N_rand_orig
     use_batching = not args.no_batching
@@ -929,9 +929,10 @@ def train():
 
                 if i_virtual >= rays_rgb_virtual.shape[0]:
                      print("Shuffle data after an epoch!")
-                     rand_idx = torch.randperm(rays_rgb_orig.shape[0])
-                     rays_rgb_orig = rays_rgb_orig[rand_idx]
-                     rays_rgb_virtual = rays_rgb_virtual[rand_idx]
+                     rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
+                     rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
+                     rays_rgb_orig = rays_rgb_orig[rand_idx_orig]
+                     rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
                      i_orig = 0
                      i_virtual=0
             else:
