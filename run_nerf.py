@@ -668,11 +668,11 @@ def train():
         
         if args.i_test is not None:
             i_test = args.i_test
-            print(f"*****************{i_test}*****************")
+            #print(f"*****************{i_test}*****************")
 
         total_num = images_orig.shape[0] + images_virtual.shape[0]
         i_val = i_test
-        i_train = np.array([i for i in np.arange(total_num) if
+        i_train = np.array([i for i in np.arange(num_orig) if
                         (i not in i_test and i not in i_val)])
         print("XXxXXXXXxxXxxXxx:", i_train)
         num_test = len(i_test)
@@ -798,7 +798,7 @@ def train():
     # Prepare raybatch tensor if batching random rays
 
     N_rand_orig = int(args.N_rand * (num_orig/total_num))
-    print('num_orig: ', num_orig,"num_virtual",num_virtual, "total_num: ", total_num, "N_rand: ",args.N_rand,"num_rand_orig:", N_rand_orig)
+    #print('num_orig: ', num_orig,"num_virtual",num_virtual, "total_num: ", total_num, "N_rand: ",args.N_rand,"num_rand_orig:", N_rand_orig)
     N_rand_virtual = args.N_rand - N_rand_orig
     use_batching = not args.no_batching
     if use_batching:
@@ -824,16 +824,14 @@ def train():
             print('done, concats')
             rays_rgb_orig = np.concatenate([rays_orig, images_orig[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
             rays_rgb_orig = np.transpose(rays_rgb_orig, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
-            rays_rgb_orig = np.stack([rays_rgb_orig[i] for i in i_train[0:num_orig-num_test]], 0) # train images only, Needs to be corrected and generalized later!
+            rays_rgb_orig = np.stack([rays_rgb_orig[i] for i in i_train], 0) # train images only, Needs to be corrected and generalized later!
             rays_rgb_orig = np.reshape(rays_rgb_orig, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
             rays_rgb_orig = rays_rgb_orig.astype(np.float32)
             np.random.shuffle(rays_rgb_orig)
 
             rays_rgb_virtual = np.concatenate([rays_virtual, images_virtual[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
             rays_rgb_virtual = np.transpose(rays_rgb_virtual, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
-            print("---------*********************", rays_rgb_virtual.shape)
-            print(i_train[num_orig-1:total_num-1].shape)
-            rays_rgb_virtual = np.stack([rays_rgb_virtual[i] for i in range(9)], 0) # train images only
+            rays_rgb_virtual = np.stack([rays_rgb_virtual[i] for i in range(num_virtual)], 0) # train images only
             rays_rgb_virtual = np.reshape(rays_rgb_virtual, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
             rays_rgb_virtual = rays_rgb_virtual.astype(np.float32)
             np.random.shuffle(rays_rgb_virtual)
