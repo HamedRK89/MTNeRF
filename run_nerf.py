@@ -530,7 +530,7 @@ def config_parser():
                         help='do not reload weights from saved ckpt')
     parser.add_argument("--ft_path", type=str, default=None, 
                         help='specific weights npy file to reload for coarse network')
-    parser.add_argument("--landa", type=float, default=0.8, 
+    parser.add_argument("--landa", type=float, default=1, 
                         help='Regularization parameter for downweighting augmented images loss due to their groundtruth noise')
 
     # rendering options
@@ -822,7 +822,7 @@ def train():
             print('done, concats')
             rays_rgb_orig = np.concatenate([rays_orig, images_orig[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
             rays_rgb_orig = np.transpose(rays_rgb_orig, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
-            rays_rgb_orig = np.stack([rays_rgb_orig[i] for i in i_train[0:num_orig-1]], 0) # train images only, Needs to be corrected and generalized later!
+            rays_rgb_orig = np.stack([rays_rgb_orig[i] for i in i_train[0:num_orig-2]], 0) # train images only, Needs to be corrected and generalized later!
             rays_rgb_orig = np.reshape(rays_rgb_orig, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
             rays_rgb_orig = rays_rgb_orig.astype(np.float32)
             np.random.shuffle(rays_rgb_orig)
@@ -831,7 +831,7 @@ def train():
             rays_rgb_virtual = np.transpose(rays_rgb_virtual, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
             print("---------*********************", rays_rgb_virtual.shape)
             print(i_train[num_orig-1:total_num-1].shape)
-            rays_rgb_virtual = np.stack([rays_rgb_virtual[i] for i in i_train[:8]], 0) # train images only
+            rays_rgb_virtual = np.stack([rays_rgb_virtual[i] for i in range(9)], 0) # train images only
             rays_rgb_virtual = np.reshape(rays_rgb_virtual, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
             rays_rgb_virtual = rays_rgb_virtual.astype(np.float32)
             np.random.shuffle(rays_rgb_virtual)

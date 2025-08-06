@@ -148,6 +148,69 @@ class NeRF(nn.Module):
         self.alpha_linear.bias.data = torch.from_numpy(np.transpose(weights[idx_alpha_linear+1]))
 
 
+class MultiHeadNeRF(nn.Module):
+    def __init__(self, D=8, W=256, input_ch=3, input_ch_views=3,
+                 output_ch=4, skips=[4], use_viewdirs=False):
+        super().__init__()
+        # --- shared backbone ---
+        self.use_viewdirs = use_viewdirs
+        self.skips = skips
+
+        self.pts_linears = nn.ModuleList(
+            [nn.Linear(input_ch, W)] +
+            [nn.Linear(W + (input_ch if i in skips else 0), W)
+             for i in range(1, D)]
+        )
+
+        if use_viewdirs:
+            self.feature_linear = nn.Linear(W, W)
+            self.views_linears  = nn.ModuleList([nn.Linear(W + input_ch_views, W//2)])
+        # --- two heads ---
+        if use_viewdirs:
+            self.rgb_head_orig   = nn.Linear(W//2, 3)
+            self.alpha_head_orig = nn.Linear(W,    1)
+            self.rgb_head_virt   = nn.Linear(W//2, 3)
+            self.alpha_head_virt = nn.Linear(W,    1)
+        else:
+            self.head_orig = nn.Linear(W, output_ch)
+            self.head_virt = nn.Linear(W, output_ch)
+
+    def forward(self, x, head="orig"):
+        """x = [pts_embed, views_embed].  head in {"orig","virt"}"""
+        input_pts, input_views = torch.split(x, [self.pts_linears[0].in_features,
+                                                  x.shape[-1] - self.pts_linears[0].in_features],
+                                             dim=-1)
+        h = input_pts
+        for i, l in enumerate(self.pts_linears):
+            h = F.relu(l(h))
+            if i in self.skips:
+                h = torch.cat([h, input_pts], -1)
+
+        if self.use_viewdirs:
+            # density
+            alpha_feat = h
+            # feature for rgb
+            feat = F.relu(self.feature_linear(h))
+            h2 = torch.cat([feat, input_views], -1)
+            for l in self.views_linears:
+                h2 = F.relu(l(h2))
+
+            if head=="orig":
+                rgb   = self.rgb_head_orig(h2)
+                alpha = self.alpha_head_orig(alpha_feat)
+            else:
+                rgb   = self.rgb_head_virt(h2)
+                alpha = self.alpha_head_virt(alpha_feat)
+
+            return torch.cat([rgb, alpha], -1)
+        else:
+            if head=="orig":
+                return self.head_orig(h)
+            else:
+                return self.head_virt(h)
+
+
+
 class NeRF_Depth(nn.Module):
     def __init__(self, D=8, W=256, input_ch=3, input_ch_views=3, output_ch=4, 
                  skips=[4], use_viewdirs=False, depth_supervision=False):
