@@ -640,11 +640,13 @@ def train():
         images_orig, poses_orig, bds_orig, images_virtual, poses_virtual, bds_virtual, render_poses, i_test = load_llff_data(args.datadir, args.factor,
                                                                   recenter=True, bd_factor=.75,
                                                                   spherify=args.spherify)
+        # print("******************\n", images_orig)
+        # print("******************\n", images_virtual)
         num_orig = images_orig.shape[0]
         num_virtual=images_virtual.shape[0]
         print(f'Number of original images:  {num_orig} \n Number of virtual images: {num_virtual}')
         print(f'Original images shape: {images_orig.shape}, Original poses: {poses_orig.shape}')
-        print(f'Original images shape: {images_virtual.shape}, Original poses: {poses_virtual.shape}')
+        print(f'Virtual images shape: {images_virtual.shape}, Virtual poses: {poses_virtual.shape}')
 
         if args.depth_supervision:
             depths = _load_depth_data(args.datadir, args.factor, load_depth=True) 
@@ -653,6 +655,7 @@ def train():
         hwf = poses_orig[0,:3,-1]
         poses_orig = poses_orig[:,:3,:4]
         poses_virtual = poses_virtual[:,:3,:4]
+        print("Original poses shape:----------> ", poses_orig.shape)
         print("Virtual poses shape:----------> ", poses_virtual.shape)
         #print(f'Loaded llff, images shape: {images.shape}, render poses shape: {render_poses.shape}, hwf: {hwf}, data dir: {args.datadir}')
         
@@ -672,7 +675,7 @@ def train():
         i_val = i_test
         i_train = np.array([i for i in np.arange(num_orig) if
                         (i not in i_test and i not in i_val)])
-        print("XXxXXXXXxxXxxXxx:", i_train)
+        print("i_train:", i_train)
         num_test = len(i_test)
         print('DEFINING BOUNDS')
         if args.no_ndc:
@@ -808,14 +811,13 @@ def train():
     if use_batching:
         # For random ray batching
         print('get rays')
-        print("****************Poses orig************ : ", poses_orig)
-        print("****************Poses virtual************ : ", poses_virtual)
+        # print("****************Poses orig************ :\n ", poses_orig)
+        # print("****************Poses virtual************ :\n ", poses_virtual)
         rays_orig = np.stack([get_rays_np(H, W, K, p) for p in poses_orig[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
         rays_virtual = np.stack([get_rays_np(H, W, K, p) for p in poses_virtual[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
 
         # Rays shape:   [N, ro+rd, H, W, 3] --> Rays_orig shape: ?? // Rays_virtual shape: ??
         # Images shape: [N, H, W, 3] --> Images_orig shape: ?? // Images_virtual shape: ??
-        # Depths shape: [N, H, W]
         print(f"SHAPES:\n\tRays_orig Shape: {rays_orig.shape}, Images_orig Shape: {images_orig.shape}")
         print(f"SHAPES:\n\tRays_virtual Shape: {rays_virtual.shape}, Images_virtual Shape: {images_virtual.shape}")
         '''
