@@ -637,16 +637,14 @@ def train():
     # Load data
     K = None
     if args.dataset_type == 'llff':
-        images_orig, poses_orig, bds, images_virtual, poses_virtual, render_poses, i_test = load_llff_data(args.datadir, args.factor,
+        images_orig, poses_orig, bds_orig, images_virtual, poses_virtual, bds_virtual, render_poses, i_test = load_llff_data(args.datadir, args.factor,
                                                                   recenter=True, bd_factor=.75,
                                                                   spherify=args.spherify)
         num_orig = images_orig.shape[0]
         num_virtual=images_virtual.shape[0]
-        print('Number of original images: ', num_orig)
-        print(images_orig.shape, poses_orig.shape)
-
-        #images_virtual = images_virtual[:num_orig, ]
-        #poses_virtual = poses_virtual[:num_orig, ]
+        print(f'Number of original images:  {num_orig} \n Number of virtual images: {num_virtual}')
+        print(f'Original images shape: {images_orig.shape}, Original poses: {poses_orig.shape}')
+        print(f'Original images shape: {images_virtual.shape}, Original poses: {poses_virtual.shape}')
 
         if args.depth_supervision:
             depths = _load_depth_data(args.datadir, args.factor, load_depth=True) 
@@ -678,9 +676,15 @@ def train():
         num_test = len(i_test)
         print('DEFINING BOUNDS')
         if args.no_ndc:
-            near = np.ndarray.min(bds) * .9
-            far = np.ndarray.max(bds) * 1.
-            
+            near_orig = np.ndarray.min(bds_orig) * .9
+            far_orig = np.ndarray.max(bds_orig) * 1.
+
+            near_virtual = np.ndarray.min(bds_virtual) * .9
+            far_virtual = np.ndarray.max(bds_virtual) * 1.
+
+            near = min(near_orig, near_virtual)
+            far = max(far_orig, far_virtual)    
+      
         else:
             near = 0.
             far = 1.

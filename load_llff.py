@@ -133,7 +133,7 @@ def _minify(basedir, factors=[], resolutions=[]):
         
         
         
-def _load_data(basedir, factor=None, width=None, height=None, load_imgs=True):
+def  _load_data(basedir, factor=None, width=None, height=None, load_imgs=True):
     
     poses_arr_orig = np.load(os.path.join(basedir, 'poses_bounds_orig.npy'))
     poses_orig = poses_arr_orig[:, :-2].reshape([-1, 3, 5]).transpose([1,2,0])
@@ -379,6 +379,7 @@ def load_llff_data(basedir, factor=8, recenter=True, bd_factor=.75, spherify=Fal
     
     # Rescale if bd_factor is provided
     sc = 1. if bd_factor is None else 1./(bds_orig.min() * bd_factor)
+    
     poses_orig[:,:3,3] *= sc
     bds_orig *= sc
     
@@ -448,4 +449,4 @@ def load_llff_data(basedir, factor=8, recenter=True, bd_factor=.75, spherify=Fal
     images_virtual = images_virtual.astype(np.float32)
     poses_virtual = poses_virtual.astype(np.float32)
 
-    return images_orig, poses_orig, bds_orig,images_virtual, poses_virtual, render_poses, i_test
+    return images_orig, poses_orig, bds_orig, images_virtual, poses_virtual, bds_virtual, render_poses, i_test
