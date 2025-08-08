@@ -192,13 +192,15 @@ def  _load_data(basedir, factor=None, width=None, height=None, load_imgs=True):
         else:
             return imageio.imread(f)
         
-    imgs_orig = [imread(f)[...,:3]/255. for f in imgfiles if 'virtual' not in f]
+    imgs_orig = [imread(f)[...,:3]/255. for f in imgfiles if 'virtual' not in f and not print(f)]
     imgs_orig = np.stack(imgs_orig, -1)  
 
-    imgs_virtual = [imread(f)[...,:3]/255. for f in imgfiles if 'virtual' in f]
+    imgs_virtual = [imread(f)[...,:3]/255. for f in imgfiles if 'virtual' in f and not print(f)]
     imgs_virtual = np.stack(imgs_virtual, -1) 
     
     print('Loaded ORIGINAL image data', imgs_orig.shape, poses_orig[:,-1,0])
+    print('Loaded VIRTUAL image data', imgs_virtual.shape, poses_virtual[:,-1,0])
+    
     return poses_orig, bds_orig, imgs_orig, poses_virtual, bds_virtual, imgs_virtual
 
   

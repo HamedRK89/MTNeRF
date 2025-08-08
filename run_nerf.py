@@ -645,8 +645,8 @@ def train():
         num_orig = images_orig.shape[0]
         num_virtual=images_virtual.shape[0]
         print(f'Number of original images:  {num_orig} \n Number of virtual images: {num_virtual}')
-        print(f'Original images shape: {images_orig.shape}, Original poses: {poses_orig.shape}')
-        print(f'Virtual images shape: {images_virtual.shape}, Virtual poses: {poses_virtual.shape}')
+        print(f'Original images shape: {images_orig.shape}, Original poses shape: {poses_orig.shape}')
+        print(f'Virtual images shape: {images_virtual.shape}, Virtual poses shape: {poses_virtual.shape}')
 
         if args.depth_supervision:
             depths = _load_depth_data(args.datadir, args.factor, load_depth=True) 
@@ -659,7 +659,6 @@ def train():
         print("Virtual poses shape:----------> ", poses_virtual.shape)
         #print(f'Loaded llff, images shape: {images.shape}, render poses shape: {render_poses.shape}, hwf: {hwf}, data dir: {args.datadir}')
         
-            
         if not isinstance(i_test, list):
             i_test = [i_test]
 
@@ -669,7 +668,6 @@ def train():
         
         if args.i_test is not None:
             i_test = args.i_test
-            #print(f"*****************{i_test}*****************")
 
         total_num = images_orig.shape[0] + images_virtual.shape[0]
         i_val = i_test
@@ -765,10 +763,7 @@ def train():
 
     # Create nerf model
     render_kwargs_train, render_kwargs_test, start, grad_vars_orig, optimizer= create_nerf(args)
-
-
     global_step = start
-
 
     bds_dict = {
         'near' : near,
@@ -781,7 +776,6 @@ def train():
     render_poses = torch.Tensor(render_poses).to(device)
 
     # Short circuit if only rendering out from trained model
-    
     if args.render_only: # To be done later!
         print('RENDER ONLY')
         with torch.no_grad():
@@ -803,18 +797,17 @@ def train():
             return
 
     # Prepare raybatch tensor if batching random rays
-
     N_rand_orig = int(args.N_rand * ((num_orig-num_test)/(total_num-num_test)))
-    #print('num_orig: ', num_orig,"num_virtual",num_virtual, "total_num: ", total_num, "N_rand: ",args.N_rand,"num_rand_orig:", N_rand_orig)
     N_rand_virtual = args.N_rand - N_rand_orig
+    #print('num_orig: ', num_orig,"num_virtual",num_virtual, "total_num: ", total_num, "N_rand: ",args.N_rand,"num_rand_orig:", N_rand_orig)
     use_batching = not args.no_batching
     if use_batching:
         # For random ray batching
         print('get rays')
         # print("****************Poses orig************ :\n ", poses_orig)
         # print("****************Poses virtual************ :\n ", poses_virtual)
-        rays_orig = np.stack([get_rays_np(H, W, K, p) for p in poses_orig[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
-        rays_virtual = np.stack([get_rays_np(H, W, K, p) for p in poses_virtual[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
+        rays_orig = np.stack([get_rays_np(H, W, K, p) for p in poses_orig[:,:3,:4]], 0) # [N_orig, ro+rd, H, W, 3]
+        rays_virtual = np.stack([get_rays_np(H, W, K, p) for p in poses_virtual[:,:3,:4]], 0) # [N_virtual, ro+rd, H, W, 3]
 
         # Rays shape:   [N, ro+rd, H, W, 3] --> Rays_orig shape: ?? // Rays_virtual shape: ??
         # Images shape: [N, H, W, 3] --> Images_orig shape: ?? // Images_virtual shape: ??
@@ -892,15 +885,15 @@ def train():
 
     # Summary writers
     #writer = SummaryWriter(os.path.join(basedir, expname, 'tensorboard'))
-    print("KWARG_TRAIN", render_kwargs_train)
-    print("KWARG_TEST", render_kwargs_test)
+    # print("KWARG_TRAIN", render_kwargs_train)
+    # print("KWARG_TEST", render_kwargs_test)
     start = start + 1
     for i in trange(start, N_iters):
         time0 = time.time()
 
         # Sample random ray batch
-        if use_batching:
-            if not args.depth_supervision:
+        # if use_batching:
+            # if not args.depth_supervision:
             #     # Random over all images
             #     batch = rays_rgb[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
             #     batch = torch.transpose(batch, 0, 1)
@@ -913,34 +906,73 @@ def train():
             #         rays_rgb = rays_rgb[rand_idx]
             #         i_batch = 0
 
-            # ---- SAMPLE BATCH FROM ORIGINAL ----
-                if (i_orig + N_rand_orig)<=rays_rgb_orig.shape[0]:
-                    batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig]
-                    batch_orig= torch.transpose(batch_orig, 0, 1)
-                    batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
-                    #print("orig", i_orig, i_orig+N_rand_orig)
-                    i_orig = (i_orig + N_rand_orig)
-                else: 
-                    batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig]
-                    batch_orig= torch.transpose(batch_orig, 0, 1)
-                    batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+            # # ---- SAMPLE BATCH FROM ORIGINAL ----
+            #     # if (i_orig + N_rand_orig)<=rays_rgb_orig.shape[0]:
+            #     batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig] # (256, 3, 3)
+            #     batch_orig= torch.transpose(batch_orig, 0, 1)
+            #     batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+            #     #print("orig", i_orig, i_orig+N_rand_orig)
+            #     i_orig = (i_orig + N_rand_orig)
+            #     # else: 
+            #         # batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig]
+            #         # batch_orig= torch.transpose(batch_orig, 0, 1)
+            #         # batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+            #     if i_orig >= rays_rgb_orig.shape[0]:
+            #         print("Shuffle data after an epoch!")
+            #         rand_idx = torch.randperm(rays_rgb_orig.shape[0])
+            #         rays_rgb_orig = rays_rgb_orig[rand_idx]
+            #         i_orig = 0
+            #     # ---- SAMPLE BATCH FROM AUGMENTED ----
+            #     batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_rand_virtual] # (768, 3, 3)
+            #     batch_virtual= torch.transpose(batch_virtual, 0, 1)
+            #     batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
+            #     #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
+            #     i_virtual = (i_virtual + N_rand_virtual)
 
-                # ---- SAMPLE BATCH FROM AUGMENTED ----
+
+            #     if i_virtual >= rays_rgb_virtual.shape[0]:
+            #         print("Shuffle data after an epoch!")
+            #         rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
+            #         rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
+            #         rays_rgb_orig = rays_rgb_orig[rand_idx_orig]
+            #         rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
+            #         i_orig = 0
+            #         i_virtual=0
+            # Sample random ray batch
+        if use_batching:
+            if not args.depth_supervision:
+                # Sample from original images
+                batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig]
+                batch_orig = torch.transpose(batch_orig, 0, 1)
+                batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+                
+                # Sample from virtual images
                 batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_rand_virtual]
-                batch_virtual= torch.transpose(batch_virtual, 0, 1)
+                batch_virtual = torch.transpose(batch_virtual, 0, 1)
                 batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
-                #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
-                i_virtual = (i_virtual + N_rand_virtual)
-
-
-                if i_virtual >= rays_rgb_virtual.shape[0]:
-                     print("Shuffle data after an epoch!")
-                     rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
-                     rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
-                     rays_rgb_orig = rays_rgb_orig[rand_idx_orig]
-                     rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
-                     i_orig = 0
-                     i_virtual=0
+                
+                # Combine the batches
+                batch_rays = torch.cat([batch_rays_orig, batch_rays_virtual], dim=1)
+                target_s = torch.cat([target_orig, target_virtual], dim=0)
+                
+                # Update indices
+                i_orig += N_rand_orig
+                i_virtual += N_rand_virtual
+                
+                # Handle epoch boundaries
+                orig_overflow = i_orig >= rays_rgb_orig.shape[0]
+                virtual_overflow = i_virtual >= rays_rgb_virtual.shape[0]
+                
+                if orig_overflow or virtual_overflow:
+                    print("Shuffle data after an epoch!")
+                    if orig_overflow:
+                        rand_idx = torch.randperm(rays_rgb_orig.shape[0])
+                        rays_rgb_orig = rays_rgb_orig[rand_idx]
+                        i_orig = 0
+                    if virtual_overflow:
+                        rand_idx = torch.randperm(rays_rgb_virtual.shape[0])
+                        rays_rgb_virtual = rays_rgb_virtual[rand_idx]
+                        i_virtual = 0
             else:
                 if use_batching:
                     # Random over all images
