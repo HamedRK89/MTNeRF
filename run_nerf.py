@@ -1028,21 +1028,30 @@ def train():
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
         #####  Core optimization loop  #####
+        '''
         rgb_orig, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
         rgb_virtual, disp, acc, depth, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
-        
+        '''
+        rgb_all, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays,
+                                                verbose=i < 10, retraw=True,
+                                                **render_kwargs_train)
+        rgb_orig = rgb_all[:N_rand_orig]
+        rgb_virtual = rgb_all[N_rand_orig:]
+
         optimizer.zero_grad()
         if not args.depth_supervision:
+            print('11111111111111111111111111', rgb_orig.shape)
+            print('--------------------------', target_orig.shape)
             img_loss_orig = img2mse(rgb_orig, target_orig)
             img_loss_virtual = img2mse(rgb_virtual, target_virtual)
             trans = extras_orig['raw'][...,-1]
             loss = img_loss_orig+args.landa*img_loss_virtual
             psnr = mse2psnr(loss)
-
+            '''
             if 'rgb0' in extras_orig:
                 img_loss0_orig = img2mse(extras_orig['rgb0'], target_orig)
                 psnr0_orig= mse2psnr(img_loss0_orig)
@@ -1056,7 +1065,7 @@ def train():
                 img_loss0_virtual =0
                 
             loss = loss + img_loss0_orig+args.landa*img_loss0_virtual
-                
+            '''
                 
 
         else:
