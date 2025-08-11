@@ -1,84 +1,10 @@
 import numpy as np
 import os, imageio
-from shutil import copy2
-from subprocess import check_output
-from pathlib import Path
-from PIL import Image
-import imageio.v3 as iio
+
 
 ########## Slightly modified version of LLFF data loading code 
 ##########  see https://github.com/Fyusion/LLFF for original
 
-def resize(imgs_dir, size, factor):
-    for image in os.listdir(imgs_dir):
-        if image.lower().endswith(('.jpg', '.jpeg', '.png')):
-            image_dir = os.path.join(imgs_dir, image)
-            im = Image.open(image_dir)
-            new_size = (int(size[1] / factor), int(size[0] / factor))  # Ensure the new size is a tuple of integers
-            im = im.resize(new_size)
-            im.save(image_dir) 
-
-def _minify(basedir, factor, load_depth=False):
-    # New _minify implementation
-    print("minifiying iamges and depth maps (if load_depth=True)", factor, basedir)
-
-    if not load_depth:
-        needtoload = False
-        imgdir = os.path.join(basedir, f'images_{factor}')
-        
-        if not os.path.exists(imgdir):
-            needtoload = True
-        if not needtoload:
-            return
-        
-        imgdir = os.path.join(basedir, 'images')
-        imgs = [os.path.join(imgdir, f) for f in sorted(os.listdir(imgdir)) if any([f.endswith(ex) for ex in ['JPG', 'jpg', 'jpeg', 'png', 'PNG']])]
-        #imgs = [f for f in imgs if any([f.endswith(ex) for ex in ['JPG', 'jpg', 'jpeg', 'png', 'PNG']])]
-        imgdir_orig = imgdir
-
-        name = f'images_{factor}'
-        imgdir = os.path.join(basedir, name)
-
-        os.makedirs(imgdir, exist_ok=True)
-
-        for item in os.listdir(imgdir_orig):
-            source = os.path.join(imgdir_orig, item)
-            destination = os.path.join(imgdir, item)
-            copy2(source, destination)
-            #print(f"copying {item} to {destination}")
-
-        
-
-        ext = imgs[0].split('.')[-1]
-        #ext_depth = depths[0].split('.')[-1]
-        shape = imageio.imread(imgs[0]).shape
-        #print("shape", shape)
-        #print("shape 0", shape[0])
-        #print("shape 1", shape[1])
-        #print("factor", factor)
-        #Resize the destination images!!!!
-        resize(imgdir, shape, factor)
-        
-
-    if load_depth:
-        depthdir = os.path.join(basedir, f'depths_{factor}')
-        depthdir = os.path.join(basedir, 'depths')
-        depths = [os.path.join(depthdir, f) for f in sorted(os.listdir(depthdir)) if any([f.endswith(ex) for ex in ['png', 'PNG']])]
-        depthdir_orig = depthdir
-
-        name_depth = f'depths_{factor}'
-        depthdir = os.path.join(basedir, name_depth)
-
-        os.makedirs(depthdir, exist_ok=True)
-
-        for item in os.listdir(depthdir_orig):
-            source = os.path.join(depthdir_orig, item)
-            destination = os.path.join(depthdir, item)
-            copy2(source, destination)
-        shape = imageio.imread(depths[0]).shape
-        resize(depthdir, shape, factor)
-
-'''
 def _minify(basedir, factors=[], resolutions=[]):
     needtoload = False
     for r in factors:
@@ -129,7 +55,7 @@ def _minify(basedir, factors=[], resolutions=[]):
             check_output('rm {}/*.{}'.format(imgdir, ext), shell=True)
             print('Removed duplicates')
         print('Done')
-'''          
+            
         
         
         
@@ -147,7 +73,7 @@ def _load_data(basedir, factor=None, width=None, height=None, load_imgs=True):
     
     if factor is not None:
         sfx = '_{}'.format(factor)
-        _minify(basedir, factor)
+        _minify(basedir, factors=[factor])
         factor = factor
     elif height is not None:
         factor = sh[0] / float(height)
@@ -191,44 +117,10 @@ def _load_data(basedir, factor=None, width=None, height=None, load_imgs=True):
     print('Loaded image data', imgs.shape, poses[:,-1,0])
     return poses, bds, imgs
 
-  
-def _load_depth_data(basedir, factor=None, load_depth=True):
-    poses_arr = np.load(os.path.join(basedir, 'poses_bounds.npy'))
-    poses = poses_arr[:, :-2].reshape([-1, 3, 5]).transpose([1,2,0])
-
-    sfx = f'_{factor}'
-    _minify(basedir, factor, load_depth=True)
-    depth_dir = Path(basedir) / f'depths{sfx}'
-
-    if not os.path.exists(depth_dir):
-        print(depth_dir, 'does NOT exist!!!! returning')
-        return
     
-    depthfiles = [os.path.join(depth_dir, f) for f in sorted(os.listdir(depth_dir)) \
-                  if f.lower().endswith('.png')]
+            
+            
     
-    if poses.shape[-1] != len(depthfiles):
-        print(f'Mismatch between depths {len(depthfiles)} and poses {poses.shape[-1]} !!!!')
-        return
-
-    def imread(f):
-        if f.endswith('png'):
-            return imageio.imread(f, ignoregamma=True)
-        else:
-            return imageio.imread(f)
-    
-    depths = [imread(f)[..., 0]/255. for f in depthfiles]
-    depths = np.stack(depths, -1)
-    
-    #depths = [iio.imread(f, mode='F') for f in depthfiles]
-    print("Loaded depth data:", depths.shape)
-
-    depths = np.moveaxis(depths, -1, 0).astype(np.float32)
-    #depths = np.array(depths)
-    depths = depths.astype(np.float32)
-    print("shape of depths after loading:", depths.shape)
-
-    return depths
 
 def normalize(x):
     return x / np.linalg.norm(x)
