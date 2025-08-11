@@ -640,10 +640,11 @@ def train():
         images_orig, poses_orig, bds_orig, images_virtual, poses_virtual, bds_virtual, render_poses, i_test = load_llff_data(args.datadir, args.factor,
                                                                   recenter=True, bd_factor=.75,
                                                                   spherify=args.spherify)
-        # print("******************\n", images_orig)
-        # print("******************\n", images_virtual)
+
         num_orig = images_orig.shape[0]
         num_virtual=images_virtual.shape[0]
+        total_num = num_orig + num_virtual
+
         print(f'Number of original images:  {num_orig} \n Number of virtual images: {num_virtual}')
         print(f'Original images shape: {images_orig.shape}, Original poses shape: {poses_orig.shape}')
         print(f'Virtual images shape: {images_virtual.shape}, Virtual poses shape: {poses_virtual.shape}')
@@ -669,7 +670,6 @@ def train():
         if args.i_test is not None:
             i_test = args.i_test
 
-        total_num = images_orig.shape[0] + images_virtual.shape[0]
         i_val = i_test
         i_train = np.array([i for i in np.arange(num_orig) if
                         (i not in i_test and i not in i_val)])
@@ -677,14 +677,8 @@ def train():
         num_test = len(i_test)
         print('DEFINING BOUNDS')
         if args.no_ndc:
-            near_orig = np.ndarray.min(bds_orig) * .9
-            far_orig = np.ndarray.max(bds_orig) * 1.
-
-            near_virtual = np.ndarray.min(bds_virtual) * .9
-            far_virtual = np.ndarray.max(bds_virtual) * 1.
-
-            near = min(near_orig, near_virtual)
-            far = max(far_orig, far_virtual)    
+            near = min(bds_orig.min(), bds_virtual.min()) * .9
+            far = max(bds_orig.max(), bds_virtual.max()) * 1.0    
       
         else:
             near = 0.
@@ -887,6 +881,11 @@ def train():
     #writer = SummaryWriter(os.path.join(basedir, expname, 'tensorboard'))
     # print("KWARG_TRAIN", render_kwargs_train)
     # print("KWARG_TEST", render_kwargs_test)
+    print("rays_rgb_orig:",rays_rgb_orig.shape)
+    print("rays_rgb_virtual:",rays_rgb_virtual.shape)
+
+    
+
     start = start + 1
     for i in trange(start, N_iters):
         time0 = time.time()
@@ -948,12 +947,13 @@ def train():
                 
                 # Sample from virtual images
                 batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_rand_virtual]
+                #print("i_virtual:",i_virtual,"N_rand_virtual:",N_rand_virtual,"i_virtual+N_rand_virtual: ",i_virtual+N_rand_virtual)
                 batch_virtual = torch.transpose(batch_virtual, 0, 1)
                 batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
-                
+            
                 # Combine the batches
                 batch_rays = torch.cat([batch_rays_orig, batch_rays_virtual], dim=1)
-                target_s = torch.cat([target_orig, target_virtual], dim=0)
+                #target_s = torch.cat([target_orig, target_virtual], dim=0)
                 
                 # Update indices
                 i_orig += N_rand_orig
@@ -963,16 +963,27 @@ def train():
                 orig_overflow = i_orig >= rays_rgb_orig.shape[0]
                 virtual_overflow = i_virtual >= rays_rgb_virtual.shape[0]
                 
-                if orig_overflow or virtual_overflow:
-                    print("Shuffle data after an epoch!")
-                    if orig_overflow:
-                        rand_idx = torch.randperm(rays_rgb_orig.shape[0])
-                        rays_rgb_orig = rays_rgb_orig[rand_idx]
-                        i_orig = 0
-                    if virtual_overflow:
-                        rand_idx = torch.randperm(rays_rgb_virtual.shape[0])
-                        rays_rgb_virtual = rays_rgb_virtual[rand_idx]
-                        i_virtual = 0
+                # if orig_overflow or virtual_overflow:
+                #     print("Shuffle data after an epoch!")
+                #     if orig_overflow:
+                #         rand_idx = torch.randperm(rays_rgb_orig.shape[0])
+                #         rays_rgb_orig = rays_rgb_orig[rand_idx]
+                #         i_orig = 0
+                #     if virtual_overflow:
+                #         rand_idx = torch.randperm(rays_rgb_virtual.shape[0])
+                #         rays_rgb_virtual = rays_rgb_virtual[rand_idx]
+                #         i_virtual = 0
+                if i_orig >= rays_rgb_orig.shape[0]:
+                    print("Shuffle ORIGINAL data after an epoch!")
+                    rand_idx = torch.randperm(rays_rgb_orig.shape[0])
+                    rays_rgb_orig = rays_rgb_orig[rand_idx]
+                    i_orig = 0
+
+                if i_virtual >= rays_rgb_virtual.shape[0]:
+                    print("Shuffle VIRTUAL data after an epoch!")
+                    rand_idx = torch.randperm(rays_rgb_virtual.shape[0])
+                    rays_rgb_virtual = rays_rgb_virtual[rand_idx]
+                    i_virtual = 0
             else:
                 if use_batching:
                     # Random over all images
@@ -1036,20 +1047,40 @@ def train():
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
         '''
-        rgb_all, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays,
-                                                verbose=i < 10, retraw=True,
-                                                **render_kwargs_train)
-        rgb_orig = rgb_all[:N_rand_orig]
-        rgb_virtual = rgb_all[N_rand_orig:]
+
+        rgb_all, disp, acc, depth, extras = render(H, W, K, chunk=args.chunk, rays=batch_rays,
+                                            verbose=i < 10, retraw=True,
+                                            **render_kwargs_train)
+        
+        rgb_orig = rgb_all[:batch_orig.shape[1]]
+        rgb_virtual = rgb_all[batch_orig.shape[1]:]
 
         optimizer.zero_grad()
         if not args.depth_supervision:
-            print('11111111111111111111111111', rgb_orig.shape)
-            print('--------------------------', target_orig.shape)
-            img_loss_orig = img2mse(rgb_orig, target_orig)
-            img_loss_virtual = img2mse(rgb_virtual, target_virtual)
-            trans = extras_orig['raw'][...,-1]
-            loss = img_loss_orig+args.landa*img_loss_virtual
+            # print(f"Iteration {i}:")
+            # print(f"i_orig: {i_orig}, N_rand_orig: {N_rand_orig}, rays_rgb_orig shape: {rays_rgb_orig.shape}")
+            # print(f"batch_orig shape: {batch_orig.shape}")
+            # print(f"target_orig shape: {target_orig.shape}")
+            # print(f"rgb_orig shape: {rgb_orig.shape}")
+            # -----------------------------------------------
+            # img_loss_orig = img2mse(rgb_orig, target_orig)
+            # img_loss_virtual = img2mse(rgb_virtual, target_virtual)
+            # trans = extras_orig['raw'][...,-1]
+            # loss = img_loss_orig+args.landa*img_loss_virtual
+            # psnr = mse2psnr(loss)
+            # -----------------------------------------------
+            # Combine targets
+            combined_targets = torch.cat([target_orig, target_virtual], dim=0)
+
+            # Calculate loss on combined output
+            img_loss = img2mse(rgb_all, combined_targets)
+            
+            # Handle coarse network if exists
+            if 'rgb0' in extras:
+                loss0_orig = img2mse(extras['rgb0'][:batch_orig.shape[1]], target_orig)
+                loss0_virtual = img2mse(extras['rgb0'][batch_orig.shape[1]:], target_virtual)
+                img_loss += loss0_orig + args.landa * loss0_virtual
+            loss = img_loss
             psnr = mse2psnr(loss)
             '''
             if 'rgb0' in extras_orig:
