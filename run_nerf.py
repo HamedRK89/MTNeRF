@@ -1070,7 +1070,7 @@ def train():
                 
             trans = extras_orig['raw'][...,-1]
             loss = img_loss_orig+args.landa*img_loss_virtual
-            psnr = mse2psnr(loss)
+            #psnr = mse2psnr(loss)
 
             # img_loss = img2mse(rgb, target_s)
             # trans = extras['raw'][...,-1]
@@ -1082,21 +1082,21 @@ def train():
             #     loss0= img2mse(extras['rgb0'][:batch_rays.shape[1]], target_s)
             #     loss+=loss0
             #     psnr = mse2psnr(loss)
-            '''
+            
             if 'rgb0' in extras_orig:
                 img_loss0_orig = img2mse(extras_orig['rgb0'], target_orig)
-                psnr0_orig= mse2psnr(img_loss0_orig)
+                #psnr0_orig= mse2psnr(img_loss0_orig)
             else:
                 img_loss0_orig =0
-
-            if 'rgb0' in extras_virtual:
+             
+            if (flag_virtual==1 and 'rgb0' in extras_virtual):
                 img_loss0_virtual = img2mse(extras_virtual['rgb0'], target_virtual)
-                psnr0_virtual= mse2psnr(img_loss0_virtual)
+                #psnr0_virtual= mse2psnr(img_loss0_virtual)
             else:
                 img_loss0_virtual =0
                 
             loss = loss + img_loss0_orig+args.landa*img_loss0_virtual
-            '''
+            psnr = mse2psnr(loss)
                 
 
         else:
