@@ -638,16 +638,17 @@ def train():
     # Load data
     K = None
     if args.dataset_type == 'llff':
-        images_orig, poses_orig, bds, images_virtual, poses_virtual, render_poses, i_test = load_llff_data(args.datadir, args.factor,
+        images_orig, poses_orig, bds_orig, images_virtual, poses_virtual, bds_virtual, render_poses, i_test = load_llff_data(args.datadir, args.factor,
                                                                   recenter=True, bd_factor=.75,
                                                                   spherify=args.spherify)
+
         num_orig = images_orig.shape[0]
         num_virtual=images_virtual.shape[0]
-        print('Number of original images: ', num_orig)
-        print(images_orig.shape, poses_orig.shape)
+        total_num = num_orig + num_virtual
 
-        #images_virtual = images_virtual[:num_orig, ]
-        #poses_virtual = poses_virtual[:num_orig, ]
+        print(f'Number of original images:  {num_orig} \n Number of virtual images: {num_virtual}')
+        print(f'Original images shape: {images_orig.shape}, Original poses shape: {poses_orig.shape}')
+        print(f'Virtual images shape: {images_virtual.shape}, Virtual poses shape: {poses_virtual.shape}')
 
         if args.depth_supervision:
             depths = _load_depth_data(args.datadir, args.factor, load_depth=True) 
@@ -656,29 +657,30 @@ def train():
         hwf = poses_orig[0,:3,-1]
         poses_orig = poses_orig[:,:3,:4]
         poses_virtual = poses_virtual[:,:3,:4]
+        print("Original poses shape:----------> ", poses_orig.shape)
         print("Virtual poses shape:----------> ", poses_virtual.shape)
         #print(f'Loaded llff, images shape: {images.shape}, render poses shape: {render_poses.shape}, hwf: {hwf}, data dir: {args.datadir}')
         
-        if args.i_test is not None:
-            i_test = [args.i_test]
-
         if not isinstance(i_test, list):
             i_test = [i_test]
 
         if args.llffhold > 0:
             print('Auto LLFF holdout,', args.llffhold)
             i_test = np.arange(images_orig.shape[0])[::args.llffhold]
+        
+        if args.i_test is not None:
+            i_test = args.i_test
 
-        total_num = images_orig.shape[0] + images_virtual.shape[0]
         i_val = i_test
-        i_train = np.array([i for i in np.arange(total_num) if
+        i_train = np.array([i for i in np.arange(num_orig) if
                         (i not in i_test and i not in i_val)])
-
+        print("i_train:", i_train)
+        num_test = len(i_test)
         print('DEFINING BOUNDS')
         if args.no_ndc:
-            near = np.ndarray.min(bds) * .9
-            far = np.ndarray.max(bds) * 1.
-            
+            near = min(bds_orig.min(), bds_virtual.min()) * .9
+            far = max(bds_orig.max(), bds_virtual.max()) * 1.0    
+      
         else:
             near = 0.
             far = 1.
@@ -756,10 +758,7 @@ def train():
 
     # Create nerf model
     render_kwargs_train, render_kwargs_test, start, grad_vars_orig, optimizer= create_nerf(args)
-
-
     global_step = start
-
 
     bds_dict = {
         'near' : near,
@@ -772,7 +771,6 @@ def train():
     render_poses = torch.Tensor(render_poses).to(device)
 
     # Short circuit if only rendering out from trained model
-    
     if args.render_only: # To be done later!
         print('RENDER ONLY')
         with torch.no_grad():
@@ -794,22 +792,20 @@ def train():
             return
 
     # Prepare raybatch tensor if batching random rays
-
-    N_rand_orig = int(args.N_rand * (num_orig/total_num))
-    print('num_orig: ', num_orig,"num_virtual",num_virtual, "total_num: ", total_num, "N_rand: ",args.N_rand,"num_rand_orig:", N_rand_orig)
+    N_rand_orig = int(args.N_rand * ((num_orig-num_test)/(total_num-num_test)))
     N_rand_virtual = args.N_rand - N_rand_orig
+    #print('num_orig: ', num_orig,"num_virtual",num_virtual, "total_num: ", total_num, "N_rand: ",args.N_rand,"num_rand_orig:", N_rand_orig)
     use_batching = not args.no_batching
     if use_batching:
         # For random ray batching
         print('get rays')
-        print("****************---************ Poses orig: ", poses_orig)
-        print("****************---************ Poses virtual: ", poses_virtual)
-        rays_orig = np.stack([get_rays_np(H, W, K, p) for p in poses_orig[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
-        rays_virtual = np.stack([get_rays_np(H, W, K, p) for p in poses_virtual[:,:3,:4]], 0) # [N, ro+rd, H, W, 3]
+        # print("****************Poses orig************ :\n ", poses_orig)
+        # print("****************Poses virtual************ :\n ", poses_virtual)
+        rays_orig = np.stack([get_rays_np(H, W, K, p) for p in poses_orig[:,:3,:4]], 0) # [N_orig, ro+rd, H, W, 3]
+        rays_virtual = np.stack([get_rays_np(H, W, K, p) for p in poses_virtual[:,:3,:4]], 0) # [N_virtual, ro+rd, H, W, 3]
 
         # Rays shape:   [N, ro+rd, H, W, 3] --> Rays_orig shape: ?? // Rays_virtual shape: ??
         # Images shape: [N, H, W, 3] --> Images_orig shape: ?? // Images_virtual shape: ??
-        # Depths shape: [N, H, W]
         print(f"SHAPES:\n\tRays_orig Shape: {rays_orig.shape}, Images_orig Shape: {images_orig.shape}")
         print(f"SHAPES:\n\tRays_virtual Shape: {rays_virtual.shape}, Images_virtual Shape: {images_virtual.shape}")
         '''
@@ -822,16 +818,14 @@ def train():
             print('done, concats')
             rays_rgb_orig = np.concatenate([rays_orig, images_orig[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
             rays_rgb_orig = np.transpose(rays_rgb_orig, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
-            rays_rgb_orig = np.stack([rays_rgb_orig[i] for i in i_train[0:num_orig-2]], 0) # train images only, Needs to be corrected and generalized later!
+            rays_rgb_orig = np.stack([rays_rgb_orig[i] for i in i_train], 0) # train images only, Needs to be corrected and generalized later!
             rays_rgb_orig = np.reshape(rays_rgb_orig, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
             rays_rgb_orig = rays_rgb_orig.astype(np.float32)
             np.random.shuffle(rays_rgb_orig)
 
             rays_rgb_virtual = np.concatenate([rays_virtual, images_virtual[:,None]], 1) # [N, ro+rd+rgb, H, W, 3]
             rays_rgb_virtual = np.transpose(rays_rgb_virtual, [0,2,3,1,4]) # [N, H, W, ro+rd+rgb, 3]
-            print("---------*********************", rays_rgb_virtual.shape)
-            print(i_train[num_orig-1:total_num-1].shape)
-            rays_rgb_virtual = np.stack([rays_rgb_virtual[i] for i in range(9)], 0) # train images only
+            rays_rgb_virtual = np.stack([rays_rgb_virtual[i] for i in range(num_virtual)], 0) # train images only
             rays_rgb_virtual = np.reshape(rays_rgb_virtual, [-1,3,3]) # [(N-1)*H*W, ro+rd+rgb, 3]
             rays_rgb_virtual = rays_rgb_virtual.astype(np.float32)
             np.random.shuffle(rays_rgb_virtual)
@@ -886,53 +880,137 @@ def train():
 
     # Summary writers
     #writer = SummaryWriter(os.path.join(basedir, expname, 'tensorboard'))
+    # print("KWARG_TRAIN", render_kwargs_train)
+    # print("KWARG_TEST", render_kwargs_test)
+    print("rays_rgb_orig:",rays_rgb_orig.shape)
+    print("rays_rgb_virtual:",rays_rgb_virtual.shape)
 
+    
+    #rays_rgb=torch.cat([rays_rgb_orig,rays_rgb_virtual],dim=0)
+    N_rand=1024
     start = start + 1
+    i_batch=0
+    flag_virtual=1
+    flag_orig=1
     for i in trange(start, N_iters):
         time0 = time.time()
 
         # Sample random ray batch
         if use_batching:
             if not args.depth_supervision:
-            #     # Random over all images
-            #     batch = rays_rgb[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
-            #     batch = torch.transpose(batch, 0, 1)
-            #     batch_rays, target_s = batch[:2], batch[2]
+                ### Random over all images
+                # batch = rays_rgb[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
+                # batch = torch.transpose(batch, 0, 1)
+                # batch_rays, target_s = batch[:2], batch[2]
 
-            #     i_batch += N_rand
-            #     if i_batch >= rays_rgb.shape[0]:
-            #         print("Shuffle data after an epoch!")
-            #         rand_idx = torch.randperm(rays_rgb.shape[0])
-            #         rays_rgb = rays_rgb[rand_idx]
-            #         i_batch = 0
+                # i_batch += N_rand
+                # if i_batch >= rays_rgb.shape[0]:
+                #     print("Shuffle data after an epoch!")
+                #     rand_idx = torch.randperm(rays_rgb.shape[0])
+                #     rays_rgb = rays_rgb[rand_idx]
+                #     i_batch = 0
 
+                ### in every epoch, first batches fully start with original images
+                
+                # if (i_orig)>=rays_rgb_orig.shape[0]:
+                #     flag_orig=0
+                #     n_rays_orig=0
+                # if flag_orig:
+                #     batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand]
+                #     n_rays_orig=batch_orig.shape[0]
+                #     batch_orig= torch.transpose(batch_orig, 0, 1)
+                #     batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+                #     i_orig+=n_rays_orig
+                
+                # N_remain=N_rand-n_rays_orig
+                # if N_remain:
+                #     flag_virtual=1
+                # batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_remain] # (768, 3, 3)
+                # batch_virtual= torch.transpose(batch_virtual, 0, 1)
+                # batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
+                # #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
+                # i_virtual +=N_remain
+                
+
+                
+                # if i_virtual >= rays_rgb_virtual.shape[0]:
+                #     print("Shuffle data after an epoch!")
+                #     rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
+                #     rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
+                #     rays_rgb_orig = rays_rgb_orig[rand_idx_orig]
+                #     rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
+                #     i_orig = 0
+                #     i_virtual=0
+                #     flag_orig=1
+                #     flag_virtual=0
+
+
+            ### Proportional combination
             # ---- SAMPLE BATCH FROM ORIGINAL ----
-                if (i_orig + N_rand_orig)<=rays_rgb_orig.shape[0]:
-                    batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig]
+                if i_orig<=rays_rgb_orig.shape[0]:
+                    batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig] # (256, 3, 3)
+                    n_rays_orig=batch_orig.shape[0]
                     batch_orig= torch.transpose(batch_orig, 0, 1)
                     batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
                     #print("orig", i_orig, i_orig+N_rand_orig)
-                    i_orig = (i_orig + N_rand_orig)
-                else: 
-                    batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig]
-                    batch_orig= torch.transpose(batch_orig, 0, 1)
-                    batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+                    i_orig +=n_rays_orig
+                else:
+                    n_rays_orig=0
+                    flag_orig=0
 
                 # ---- SAMPLE BATCH FROM AUGMENTED ----
-                batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_rand_virtual]
+                N_remain=N_rand-n_rays_orig
+                batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_remain] # (768, 3, 3)
                 batch_virtual= torch.transpose(batch_virtual, 0, 1)
                 batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
                 #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
-                i_virtual = (i_virtual + N_rand_virtual)
+                i_virtual += N_remain
 
 
-                if i_virtual >= rays_rgb_virtual.shape[0]:
-                     print("Shuffle data after an epoch!")
-                     rand_idx = torch.randperm(rays_rgb_orig.shape[0])
-                     rays_rgb_orig = rays_rgb_orig[rand_idx]
-                     rays_rgb_virtual = rays_rgb_virtual[rand_idx]
-                     i_orig = 0
-                     i_virtual=0
+                if i_virtual > rays_rgb_virtual.shape[0]:
+                    print("Shuffle data after an epoch!")
+                    rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
+                    rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
+                    rays_rgb_orig = rays_rgb_orig[rand_idx_orig]
+                    rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
+                    i_orig = 0
+                    i_virtual=0
+                    flag_orig=1
+
+            ###Half/half
+            # # ---- SAMPLE BATCH FROM ORIGINAL ----
+            #     if (i_orig)>=rays_rgb_orig.shape[0]:
+            #         flag_orig=0
+            #         n_rays_orig=0
+            #     if flag_orig:
+            #         batch_orig = rays_rgb_orig[i_orig:i_orig+int(N_rand/2)] # (256, 3, 3)
+            #         n_rays_orig=batch_orig.shape[0]
+            #         #print("#########n_rays_orig: ",n_rays_orig)
+            #         batch_orig= torch.transpose(batch_orig, 0, 1)
+            #         batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+            #         i_orig += n_rays_orig
+
+            #     # ---- SAMPLE BATCH FROM AUGMENTED ----
+            #     N_remain=N_rand-n_rays_orig
+            #     batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_remain] # (768, 3, 3)
+            #     batch_virtual= torch.transpose(batch_virtual, 0, 1)
+            #     batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
+            #     #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
+            #     i_virtual +=N_remain
+
+
+            #     if i_virtual >= rays_rgb_virtual.shape[0]:
+            #         print("Shuffle data after an epoch!")
+            #         rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
+            #         rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
+            #         rays_rgb_orig = rays_rgb_orig[rand_idx_orig]
+            #         rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
+            #         i_orig = 0
+            #         i_virtual=0
+            #         flag_orig=1
+
+       
+
             else:
                 if use_batching:
                     # Random over all images
@@ -988,30 +1066,70 @@ def train():
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
         #####  Core optimization loop  #####
-        rgb_orig, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,network_query_fn=render_kwargs_train['network_fn_orig'],head='orig',
+        if flag_orig:
+            rgb_orig, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,network_query_fn=render_kwargs_train['network_fn_orig'],head='orig',
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
-        rgb_virtual, disp, acc, depth, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,network_query_fn=render_kwargs_train['network_fn_virt'],head='virt',
+        if flag_virtual:
+            rgb_virtual, disp, acc, depth, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,network_query_fn=render_kwargs_train['network_fn_virt'],head='virt',
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
         
+
+        # rgb, disp, acc, depth, extras = render(H, W, K, chunk=args.chunk, rays=batch_rays,
+        #                                     verbose=i < 10, retraw=True,
+        #                                     **render_kwargs_train)
+        
+
         optimizer.zero_grad()
         if not args.depth_supervision:
-            img_loss_orig = img2mse(rgb_orig, target_orig)
-            img_loss_virtual = img2mse(rgb_virtual, target_virtual)
+            # print(f"Iteration {i}:")
+            # print(f"i_orig: {i_orig}, N_rand_orig: {N_rand_orig}, rays_rgb_orig shape: {rays_rgb_orig.shape}")
+            # print(f"batch_orig shape: {batch_orig.shape}")
+            # print(f"target_orig shape: {target_orig.shape}")
+            # print(f"rgb_orig shape: {rgb_orig.shape}")
+            # img_loss = img2mse(rgb, target_s)
+            # trans = extras['raw'][...,-1]
+            # loss = img_loss
+            # psnr = mse2psnr(loss)
+
+            ## Handle coarse network if exists
+            # if 'rgb0' in extras:
+            #     loss0= img2mse(extras['rgb0'][:batch_rays.shape[1]], target_s)
+            #     loss+=loss0
+            #     psnr = mse2psnr(loss)
+
+
+            if flag_orig:
+                img_loss_orig = img2mse(rgb_orig, target_orig)
+            else:
+                img_loss_orig=0
+
+            if flag_virtual:
+                img_loss_virtual = img2mse(rgb_virtual, target_virtual)
+            else:
+                img_loss_virtual=0
+                
             trans = extras_orig['raw'][...,-1]
             loss = img_loss_orig+args.landa*img_loss_virtual
-            psnr = mse2psnr(loss)
+            #psnr = mse2psnr(loss)
 
-            if 'rgb0' in extras_orig:
+            
+            if (flag_orig==1 and 'rgb0' in extras_orig):
                 img_loss0_orig = img2mse(extras_orig['rgb0'], target_orig)
+                #psnr0_orig= mse2psnr(img_loss0_orig)
+            else:
+                img_loss0_orig =0
+             
+            if (flag_virtual==1 and 'rgb0' in extras_virtual):
                 img_loss0_virtual = img2mse(extras_virtual['rgb0'], target_virtual)
-
-                loss = loss + img_loss0_orig+img_loss0_virtual
-                psnr0_orig= mse2psnr(img_loss0_orig)
-                psnr0_virtual= mse2psnr(img_loss0_virtual)
-
-
+                #psnr0_virtual= mse2psnr(img_loss0_virtual)
+            else:
+                img_loss0_virtual =0
+                
+            loss = loss + img_loss0_orig+args.landa*img_loss0_virtual
+            psnr = mse2psnr(loss)
+                
 
         else:
             # print(f"----------------------------\n RGB: {rgb} \n target_RGB: {target_rgb} \n  epth: {depth} \n target_d:{target_d}")
