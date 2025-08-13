@@ -1099,36 +1099,57 @@ def train():
             #     psnr = mse2psnr(loss)
 
 
-            if flag_orig:
-                img_loss_orig = img2mse(rgb_orig, target_orig)
-            else:
-                img_loss_orig=0
+            # if flag_orig:
+            #     img_loss_orig = img2mse(rgb_orig, target_orig)
+            # else:
+            #     img_loss_orig=0
 
-            if flag_virtual:
-                img_loss_virtual = img2mse(rgb_virtual, target_virtual)
-            else:
-                img_loss_virtual=0
+            # if flag_virtual:
+            #     img_loss_virtual = img2mse(rgb_virtual, target_virtual)
+            # else:
+            #     img_loss_virtual=0
                 
-            trans = extras_orig['raw'][...,-1]
-            loss = img_loss_orig+args.landa*img_loss_virtual
-            #psnr = mse2psnr(loss)
+            # trans = extras_orig['raw'][...,-1]
+            # loss = img_loss_orig+args.landa*img_loss_virtual
+            # #psnr = mse2psnr(loss)
 
             
-            if (flag_orig==1 and 'rgb0' in extras_orig):
-                img_loss0_orig = img2mse(extras_orig['rgb0'], target_orig)
-                #psnr0_orig= mse2psnr(img_loss0_orig)
-            else:
-                img_loss0_orig =0
+            # if (flag_orig==1 and 'rgb0' in extras_orig):
+            #     img_loss0_orig = img2mse(extras_orig['rgb0'], target_orig)
+            #     #psnr0_orig= mse2psnr(img_loss0_orig)
+            # else:
+            #     img_loss0_orig =0
              
-            if (flag_virtual==1 and 'rgb0' in extras_virtual):
-                img_loss0_virtual = img2mse(extras_virtual['rgb0'], target_virtual)
-                #psnr0_virtual= mse2psnr(img_loss0_virtual)
-            else:
-                img_loss0_virtual =0
+            # if (flag_virtual==1 and 'rgb0' in extras_virtual):
+            #     img_loss0_virtual = img2mse(extras_virtual['rgb0'], target_virtual)
+            #     #psnr0_virtual= mse2psnr(img_loss0_virtual)
+            # else:
+            #     img_loss0_virtual =0
                 
-            loss = loss + img_loss0_orig+args.landa*img_loss0_virtual
-            psnr = mse2psnr(loss)
-                
+            # loss = loss + img_loss0_orig+args.landa*img_loss0_virtual
+            # psnr = mse2psnr(loss)
+            b_orig = batch_rays_orig.shape[1] if flag_orig else 0
+            b_virt = batch_rays_virtual.shape[1] if flag_virtual else 0
+
+            loss_num = 0.0
+            denom   = 0
+
+            if b_orig > 0:
+                loss_num += b_orig * img2mse(rgb_orig,     target_orig)
+                if 'rgb0' in extras_orig:
+                    loss_num += b_orig * img2mse(extras_orig['rgb0'], target_orig)
+                denom += b_orig
+
+            if b_virt > 0:
+                loss_num += λ * b_virt * img2mse(rgb_virtual,     target_virtual)
+                if 'rgb0' in extras_virtual:
+                    loss_num += λ * b_virt * img2mse(extras_virtual['rgb0'], target_virtual)
+                denom += λ * b_virt
+
+            loss = loss_num / max(denom, 1)
+            snr = mse2psnr(loss)
+   
+
 
         else:
             # print(f"----------------------------\n RGB: {rgb} \n target_RGB: {target_rgb} \n  epth: {depth} \n target_d:{target_d}")
