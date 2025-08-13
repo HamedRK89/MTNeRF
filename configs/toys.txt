@@ -1,4 +1,4 @@
-expname = toys_5_9_landa_1_sep
+expname = toys_proportional_0.8
 basedir = ./logs
 datadir = ./dataset/toys_5_9
 dataset_type = llff

@@ -529,7 +529,7 @@ def config_parser():
                         help='do not reload weights from saved ckpt')
     parser.add_argument("--ft_path", type=str, default=None, 
                         help='specific weights npy file to reload for coarse network')
-    parser.add_argument("--landa", type=float, default=1., 
+    parser.add_argument("--landa", type=float, default=0.8, 
                         help='Regularization parameter for downweighting augmented images loss due to their groundtruth noise')
 
     # rendering options
@@ -897,7 +897,7 @@ def train():
         # Sample random ray batch
         if use_batching:
             if not args.depth_supervision:
-                # # Random over all images
+                ### Random over all images
                 # batch = rays_rgb[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
                 # batch = torch.transpose(batch, 0, 1)
                 # batch_rays, target_s = batch[:2], batch[2]
@@ -909,29 +909,28 @@ def train():
                 #     rays_rgb = rays_rgb[rand_idx]
                 #     i_batch = 0
 
-                # in every epoch, first batches fully start with original images
+                ### in every epoch, first batches fully start with original images
                 
-                # if i_orig<=rays_rgb_orig.shape[0]:
+                # if (i_orig)>=rays_rgb_orig.shape[0]:
+                #     flag_orig=0
+                #     n_rays_orig=0
+                # if flag_orig:
                 #     batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand]
+                #     n_rays_orig=batch_orig.shape[0]
                 #     batch_orig= torch.transpose(batch_orig, 0, 1)
                 #     batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
-                    
-                # if ((i_orig<= rays_rgb_orig.shape[0]) and (i_orig+N_rand>rays_rgb_orig.shape[0])):
-                #     N_remain=i_orig+N_rand-rays_rgb_orig.shape[0]
-                #     batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_remain] # (768, 3, 3)
-                #     batch_virtual= torch.transpose(batch_virtual, 0, 1)
-                #     batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
-                #     i_virtual+=N_remain
+                #     i_orig+=n_rays_orig
+                
+                # N_remain=N_rand-n_rays_orig
+                # if N_remain:
                 #     flag_virtual=1
-                # else: 
-                #     i_orig+=N_rand
+                # batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_remain] # (768, 3, 3)
+                # batch_virtual= torch.transpose(batch_virtual, 0, 1)
+                # batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
+                # #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
+                # i_virtual +=N_remain
+                
 
-                # if i_orig>rays_rgb_orig.shape[0]:
-                #     batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_rand] # (768, 3, 3)
-                #     batch_virtual= torch.transpose(batch_virtual, 0, 1)
-                #     batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
-                # # #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
-                #     i_virtual += N_rand_virtual
                 
                 # if i_virtual >= rays_rgb_virtual.shape[0]:
                 #     print("Shuffle data after an epoch!")
@@ -941,30 +940,62 @@ def train():
                 #     rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
                 #     i_orig = 0
                 #     i_virtual=0
+                #     flag_orig=1
+                #     flag_virtual=0
 
 
+            ### Proportional combination
+            # ---- SAMPLE BATCH FROM ORIGINAL ----
+                if i_orig<=rays_rgb_orig.shape[0]:
+                    batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig] # (256, 3, 3)
+                    n_rays_orig=batch_orig.shape[0]
+                    batch_orig= torch.transpose(batch_orig, 0, 1)
+                    batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+                    #print("orig", i_orig, i_orig+N_rand_orig)
+                    i_orig +=n_rays_orig
+                else:
+                    n_rays_orig=0
+                    flag_orig=0
+
+                # ---- SAMPLE BATCH FROM AUGMENTED ----
+                N_remain=N_rand-n_rays_orig
+                batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_remain] # (768, 3, 3)
+                batch_virtual= torch.transpose(batch_virtual, 0, 1)
+                batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
+                #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
+                i_virtual += N_remain
 
 
+                if i_virtual > rays_rgb_virtual.shape[0]:
+                    print("Shuffle data after an epoch!")
+                    rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
+                    rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
+                    rays_rgb_orig = rays_rgb_orig[rand_idx_orig]
+                    rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
+                    i_orig = 0
+                    i_virtual=0
+                    flag_orig=1
 
+            ###Half/half
             # # ---- SAMPLE BATCH FROM ORIGINAL ----
-            #     # if (i_orig + N_rand_orig)<=rays_rgb_orig.shape[0]:
-            #     batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig] # (256, 3, 3)
-            #     batch_orig= torch.transpose(batch_orig, 0, 1)
-            #     batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
-            #     #print("orig", i_orig, i_orig+N_rand_orig)
-            #     i_orig = (i_orig + N_rand_orig)
+            #     if (i_orig)>=rays_rgb_orig.shape[0]:
+            #         flag_orig=0
+            #         n_rays_orig=0
+            #     if flag_orig:
+            #         batch_orig = rays_rgb_orig[i_orig:i_orig+int(N_rand/2)] # (256, 3, 3)
+            #         n_rays_orig=batch_orig.shape[0]
+            #         #print("#########n_rays_orig: ",n_rays_orig)
+            #         batch_orig= torch.transpose(batch_orig, 0, 1)
+            #         batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+            #         i_orig += n_rays_orig
 
-            #     if i_orig >= rays_rgb_orig.shape[0]:
-            #         print("Shuffle data after an epoch!")
-            #         rand_idx = torch.randperm(rays_rgb_orig.shape[0])
-            #         rays_rgb_orig = rays_rgb_orig[rand_idx]
-            #         i_orig = 0
             #     # ---- SAMPLE BATCH FROM AUGMENTED ----
-            #     batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_rand_virtual] # (768, 3, 3)
+            #     N_remain=N_rand-n_rays_orig
+            #     batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_remain] # (768, 3, 3)
             #     batch_virtual= torch.transpose(batch_virtual, 0, 1)
             #     batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
             #     #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
-            #     i_virtual = (i_virtual + N_rand_virtual)
+            #     i_virtual +=N_remain
 
 
             #     if i_virtual >= rays_rgb_virtual.shape[0]:
@@ -975,36 +1006,7 @@ def train():
             #         rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
             #         i_orig = 0
             #         i_virtual=0
-
-
-            # ---- SAMPLE BATCH FROM ORIGINAL ----
-                if flag_orig:
-                    if (i_orig+N_rand/2)>rays_rgb_orig.shape[0]:
-                        flag_orig=0
-                        n_rays_orig=0
-                    batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand/2] # (256, 3, 3)
-                    n_rays_orig=batch_orig.shape[0]
-                    batch_orig= torch.transpose(batch_orig, 0, 1)
-                    batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
-                    i_orig += N_rand/2
-
-                # ---- SAMPLE BATCH FROM AUGMENTED ----
-                N_remain=N_rand-n_rays_orig
-                batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_remain] # (768, 3, 3)
-                batch_virtual= torch.transpose(batch_virtual, 0, 1)
-                batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
-                #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
-                i_virtual +=N_remain
-
-
-                if i_virtual >= rays_rgb_virtual.shape[0]:
-                    print("Shuffle data after an epoch!")
-                    rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
-                    rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
-                    rays_rgb_orig = rays_rgb_orig[rand_idx_orig]
-                    rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
-                    i_orig = 0
-                    i_virtual=0
+            #         flag_orig=1
 
        
 
@@ -1063,7 +1065,7 @@ def train():
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
         #####  Core optimization loop  #####
-        if not flag_orig:
+        if flag_orig:
             rgb_orig, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
@@ -1085,7 +1087,23 @@ def train():
             # print(f"batch_orig shape: {batch_orig.shape}")
             # print(f"target_orig shape: {target_orig.shape}")
             # print(f"rgb_orig shape: {rgb_orig.shape}")
-            img_loss_orig = img2mse(rgb_orig, target_orig)
+            # img_loss = img2mse(rgb, target_s)
+            # trans = extras['raw'][...,-1]
+            # loss = img_loss
+            # psnr = mse2psnr(loss)
+
+            ## Handle coarse network if exists
+            # if 'rgb0' in extras:
+            #     loss0= img2mse(extras['rgb0'][:batch_rays.shape[1]], target_s)
+            #     loss+=loss0
+            #     psnr = mse2psnr(loss)
+
+
+            if flag_orig:
+                img_loss_orig = img2mse(rgb_orig, target_orig)
+            else:
+                img_loss_orig=0
+
             if flag_virtual:
                 img_loss_virtual = img2mse(rgb_virtual, target_virtual)
             else:
@@ -1095,18 +1113,8 @@ def train():
             loss = img_loss_orig+args.landa*img_loss_virtual
             #psnr = mse2psnr(loss)
 
-            # img_loss = img2mse(rgb, target_s)
-            # trans = extras['raw'][...,-1]
-            # loss = img_loss
-            # psnr = mse2psnr(loss)
-
-            # # Handle coarse network if exists
-            # if 'rgb0' in extras:
-            #     loss0= img2mse(extras['rgb0'][:batch_rays.shape[1]], target_s)
-            #     loss+=loss0
-            #     psnr = mse2psnr(loss)
             
-            if 'rgb0' in extras_orig:
+            if (flag_orig==1 and 'rgb0' in extras_orig):
                 img_loss0_orig = img2mse(extras_orig['rgb0'], target_orig)
                 #psnr0_orig= mse2psnr(img_loss0_orig)
             else:
