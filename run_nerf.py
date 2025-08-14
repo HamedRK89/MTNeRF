@@ -1134,22 +1134,25 @@ def train():
             b_virt = n_rays_virtual if flag_virtual else 0
 
             loss_num = 0.0
+            loss_fine=0
             denom   = 0
 
             if b_orig > 0:
                 loss_num += b_orig * img2mse(rgb_orig,     target_orig)
+                loss_fine += b_orig * img2mse(rgb_orig,     target_orig)
                 if 'rgb0' in extras_orig:
                     loss_num += b_orig * img2mse(extras_orig['rgb0'], target_orig)
                 denom += b_orig
 
             if b_virt > 0:
                 loss_num += args.landa * b_virt * img2mse(rgb_virtual,     target_virtual)
+                loss_fine += args.landa * b_virt * img2mse(rgb_virtual,     target_virtual)
                 if 'rgb0' in extras_virtual:
                     loss_num += args.landa * b_virt * img2mse(extras_virtual['rgb0'], target_virtual)
                 denom += args.landa * b_virt
 
             loss = loss_num / max(denom, 1)
-            psnr = mse2psnr(loss)
+            psnr = mse2psnr(loss_fine)
    
 
 
