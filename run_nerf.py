@@ -1114,11 +1114,11 @@ def train():
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
         #####  Core optimization loop  #####
-        if flag_orig and n_rays_orig>0:
+        if flag_orig:
             rgb_orig, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
-        if flag_virtual and n_rays_virtual>0:
+        if flag_virtual:
             rgb_virtual, disp, acc, depth, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
@@ -1178,8 +1178,8 @@ def train():
             # loss = loss + img_loss0_orig+args.landa*img_loss0_virtual
             # psnr = mse2psnr(loss)
 
-            b_orig = n_rays_orig if flag_orig else 0
-            b_virt = n_rays_virtual if flag_virtual else 0
+            b_orig = batch_rays_orig.shape[1] if flag_orig else 0
+            b_virt = batch_rays_virtual.shape[1] if flag_virtual else 0
 
             loss_num = 0.0
             loss_fine=0
