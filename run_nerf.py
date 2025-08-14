@@ -886,7 +886,7 @@ def train():
 
     
     #rays_rgb=torch.cat([rays_rgb_orig,rays_rgb_virtual],dim=0)
-    N_rand=1024
+    N_rand=args.N_rand
     start = start + 1
     i_batch=0
     flag_virtual=1
@@ -1152,6 +1152,7 @@ def train():
                 denom += args.landa * b_virt
 
             loss = loss_num / max(denom, 1)
+            loss_f=loss_fine/max(denom, 1)
             psnr = mse2psnr(loss_fine)
    
 
