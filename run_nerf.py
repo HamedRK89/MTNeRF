@@ -1141,13 +1141,13 @@ def train():
                 denom += b_orig
 
             if b_virt > 0:
-                loss_num += λ * b_virt * img2mse(rgb_virtual,     target_virtual)
+                loss_num += args.landa * b_virt * img2mse(rgb_virtual,     target_virtual)
                 if 'rgb0' in extras_virtual:
-                    loss_num += λ * b_virt * img2mse(extras_virtual['rgb0'], target_virtual)
-                denom += λ * b_virt
+                    loss_num += args.landa * b_virt * img2mse(extras_virtual['rgb0'], target_virtual)
+                denom += args.landa * b_virt
 
             loss = loss_num / max(denom, 1)
-            snr = mse2psnr(loss)
+            psnr = mse2psnr(loss)
    
 
 

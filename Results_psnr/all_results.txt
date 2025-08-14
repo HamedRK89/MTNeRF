@@ -1,0 +1,12 @@
+GT_00.png vs 50_00.png: 17.30 dB
+GT_00.png vs main_00.png: 21.97 dB
+GT_00.png vs prop_0.8_00.png: 17.61 dB
+GT_00.png vs seq_0.8_00.png: 17.22 dB
+GT_00.png vs prop_1.0_00.png: 17.57 dB
+GT_00.png vs prop_scaled_1.0_00.png: 17.13 dB
+GT_12.png vs 50_12.png: 16.10 dB
+GT_12.png vs main_12.png: 20.99 dB
+GT_12.png vs prop_0.8_12.png: 16.50 dB
+GT_12.png vs seq_0.8_12.png: 16.25 dB
+GT_12.png vs prop_1.0_12.png: 15.91 dB
+GT_12.png vs prop_scaled_1.0_12.png: 16.07 dB

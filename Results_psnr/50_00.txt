@@ -1,0 +1,1 @@
+PSNR between images: 17.30 dB

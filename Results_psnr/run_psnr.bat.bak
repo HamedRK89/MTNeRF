@@ -1,0 +1,17 @@
+@echo off
+set output=all_results.txt
+del %output% 2>nul
+
+python .\psnr.py .\GT_00.png .\50_00.png %output%
+python .\psnr.py .\GT_00.png .\main_00.png %output%
+python .\psnr.py .\GT_00.png .\prop_0.8_00.png %output%
+python .\psnr.py .\GT_00.png .\seq_0.8_00.png %output%
+python .\psnr.py .\GT_00.png .\prop_1.0_00.png %output%
+python .\psnr.py .\GT_12.png .\50_12.png %output%
+python .\psnr.py .\GT_12.png .\main_12.png %output%
+python .\psnr.py .\GT_12.png .\prop_0.8_12.png %output%
+python .\psnr.py .\GT_12.png .\seq_0.8_12.png %output%
+python .\psnr.py .\GT_12.png .\prop_1.0_12.png %output%
+
+echo All PSNR results saved to %output%
+pause
