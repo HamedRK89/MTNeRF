@@ -529,7 +529,7 @@ def config_parser():
                         help='do not reload weights from saved ckpt')
     parser.add_argument("--ft_path", type=str, default=None, 
                         help='specific weights npy file to reload for coarse network')
-    parser.add_argument("--landa", type=float, default=0.8, 
+    parser.add_argument("--landa", type=float, default=1., 
                         help='Regularization parameter for downweighting augmented images loss due to their groundtruth noise')
 
     # rendering options
@@ -1153,7 +1153,7 @@ def train():
 
             loss = loss_num / max(denom, 1)
             loss_f=loss_fine/max(denom, 1)
-            psnr = mse2psnr(loss_fine)
+            psnr = mse2psnr(loss_f)
    
 
 
