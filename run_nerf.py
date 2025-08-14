@@ -946,7 +946,7 @@ def train():
 
             ### Proportional combination
             # ---- SAMPLE BATCH FROM ORIGINAL ----
-                if i_orig<=rays_rgb_orig.shape[0]:
+                if i_orig<rays_rgb_orig.shape[0]:
                     batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig] # (256, 3, 3)
                     n_rays_orig=batch_orig.shape[0]
                     batch_orig= torch.transpose(batch_orig, 0, 1)
@@ -960,13 +960,14 @@ def train():
                 # ---- SAMPLE BATCH FROM AUGMENTED ----
                 N_remain=N_rand-n_rays_orig
                 batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_remain] # (768, 3, 3)
+                n_rays_virtual=batch_virtual.shape[0]
                 batch_virtual= torch.transpose(batch_virtual, 0, 1)
                 batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
                 #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
                 i_virtual += N_remain
 
 
-                if i_virtual > rays_rgb_virtual.shape[0]:
+                if i_virtual >= rays_rgb_virtual.shape[0] and i_orig >= rays_rgb_orig.shape[0]:
                     print("Shuffle data after an epoch!")
                     rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
                     rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
@@ -1065,11 +1066,11 @@ def train():
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
         #####  Core optimization loop  #####
-        if flag_orig:
+        if flag_orig and n_rays_orig>0:
             rgb_orig, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
-        if flag_virtual:
+        if flag_virtual and n_rays_virtual>0:
             rgb_virtual, disp, acc, depth, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,
                                                 verbose=i < 10, retraw=True,
                                                 **render_kwargs_train)
@@ -1128,8 +1129,9 @@ def train():
                 
             # loss = loss + img_loss0_orig+args.landa*img_loss0_virtual
             # psnr = mse2psnr(loss)
-            b_orig = batch_rays_orig.shape[1] if flag_orig else 0
-            b_virt = batch_rays_virtual.shape[1] if flag_virtual else 0
+
+            b_orig = n_rays_orig if flag_orig else 0
+            b_virt = n_rays_virtual if flag_virtual else 0
 
             loss_num = 0.0
             denom   = 0
