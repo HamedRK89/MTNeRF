@@ -1,6 +1,6 @@
-expname = toys_5_9
+expname = main_2
 basedir = ./logs
-datadir = ./dataset/Toys_5_9
+datadir = ./dataset/toys_5_9
 dataset_type = llff
 
 factor = 4
