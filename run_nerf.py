@@ -897,17 +897,6 @@ def train():
         # Sample random ray batch
         if use_batching:
             if not args.depth_supervision:
-                ### Random over all images
-                # batch = rays_rgb[i_batch:i_batch+N_rand] # [B, 2+1, 3*?]
-                # batch = torch.transpose(batch, 0, 1)
-                # batch_rays, target_s = batch[:2], batch[2]
-
-                # i_batch += N_rand
-                # if i_batch >= rays_rgb.shape[0]:
-                #     print("Shuffle data after an epoch!")
-                #     rand_idx = torch.randperm(rays_rgb.shape[0])
-                #     rays_rgb = rays_rgb[rand_idx]
-                #     i_batch = 0
 
                 ### in every epoch, first batches fully start with original images
                 
@@ -944,7 +933,7 @@ def train():
                 #     flag_virtual=0
 
 
-            ### Proportional combination
+            # ### Proportional combination
             # # ---- SAMPLE BATCH FROM ORIGINAL ----
             #     if i_orig<rays_rgb_orig.shape[0]:
             #         batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig] # (256, 3, 3)
@@ -977,11 +966,35 @@ def train():
             #         i_virtual=0
             #         flag_orig=1
 
-            # ---- RANDOM SPLIT EACH BATCH ----
+            # else:
+            #     if use_batching:
+            #         # Random over all images
+            #         batch = rays_rgbd[i_batch:i_batch+N_rand]  # [B, 4, 3]
+            #         batch = torch.transpose(batch, 0, 1)
+                    
+            #         # Split into components:
+            #         # batch_rays: origin (3) + direction (3) [2, B, 3]
+            #         # target_s: RGB (3) + depth (3) [2, B, 3]
+            #         batch_rays, target_s = batch[:2], batch[2:]
+                    
+            #         # For NeRF compatibility, we might want to separate RGB and depth
+            #         target_rgb = target_s[0]  # [B, 3] - RGB values
+            #         #print("---------------********************------------------", target_rgb)
 
-                # desired #orig in [0, N_rand]
-                n_o_desired = np.random.randint(0, N_rand + 1)
+            #         target_d = target_s[1][:, 0:1]  # [B, 1] - Take only first channel (repeated depth)
+            #         #print("---------------********************------------------", target_d)
+            #         i_batch += N_rand
+            #         if i_batch >= rays_rgbd.shape[0]:
+            #             print("Shuffle data after an epoch!")
+            #             rand_idx = torch.randperm(rays_rgbd.shape[0])
+            #             rays_rgbd = rays_rgbd[rand_idx]
+            #             i_batch = 0
 
+
+
+            # ---- PROPORTIONAL COMBINATION (single render) ----
+                # how many from orig this step (fixed proportion)
+                n_o_desired = N_rand_orig
                 rem_o = rays_rgb_orig.shape[0] - i_orig
                 rem_v = rays_rgb_virtual.shape[0] - i_virtual
 
@@ -989,99 +1002,41 @@ def train():
                 n_o = min(n_o_desired, rem_o)
                 n_v = min(N_rand - n_o, rem_v)
 
-                # top-up to reach N_rand if possible
+                # top up if short so total ≈ N_rand
                 short = N_rand - (n_o + n_v)
                 if short > 0:
                     extra_o = min(short, rem_o - n_o); n_o += extra_o; short -= extra_o
                 if short > 0:
                     extra_v = min(short, rem_v - n_v); n_v += extra_v; short -= extra_v
-                # if short > 0 here, final batch is smaller than N_rand
+                # if short > 0 here, final batch is just smaller than N_rand
 
-                flag_orig = n_o > 0
-                flag_virtual = n_v > 0
+                parts, wparts = [], []
+                if n_o > 0:
+                    bo = rays_rgb_orig[i_orig:i_orig + n_o]; i_orig += n_o     # [n_o,3,3]
+                    parts.append(bo)
+                    wparts.append(torch.ones(n_o, device=bo.device))           # weight 1.0
+                if n_v > 0:
+                    bv = rays_rgb_virtual[i_virtual:i_virtual + n_v]; i_virtual += n_v
+                    parts.append(bv)
+                    wparts.append(torch.full((n_v,), args.landa, device=bv.device))  # weight λ
 
-                if flag_orig:
-                    batch_orig = rays_rgb_orig[i_orig:i_orig + n_o]
-                    i_orig += n_o
-                    batch_orig = batch_orig.transpose(0, 1)
-                    batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
+                batch = torch.cat(parts, dim=0)          # [B,3,3]
+                wts   = torch.cat(wparts, dim=0)         # [B]
 
-                if flag_virtual:
-                    batch_virtual = rays_rgb_virtual[i_virtual:i_virtual + n_v]
-                    i_virtual += n_v
-                    batch_virtual = batch_virtual.transpose(0, 1)
-                    batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
+                # to [2,B,3] rays + [B,3] target
+                b = batch.transpose(0, 1)                # [3,B,3]
+                batch_rays, target = b[:2], b[2]
 
-                # epoch end → reshuffle both pools
+                # end-of-epoch reshuffle (both pools exhausted)
                 if i_orig >= rays_rgb_orig.shape[0] and i_virtual >= rays_rgb_virtual.shape[0]:
                     print("Shuffle data after an epoch!")
-                    rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
-                    rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
-                    rays_rgb_orig = rays_rgb_orig[rand_idx_orig]
-                    rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
+                    perm_o = torch.randperm(rays_rgb_orig.shape[0], device=rays_rgb_orig.device)
+                    perm_v = torch.randperm(rays_rgb_virtual.shape[0], device=rays_rgb_virtual.device)
+                    rays_rgb_orig    = rays_rgb_orig[perm_o]
+                    rays_rgb_virtual = rays_rgb_virtual[perm_v]
                     i_orig = 0
                     i_virtual = 0
 
-
-
-
-            ###Half/half
-            # # ---- SAMPLE BATCH FROM ORIGINAL ----
-            #     if (i_orig)>=rays_rgb_orig.shape[0]:
-            #         flag_orig=0
-            #         n_rays_orig=0
-            #     if flag_orig:
-            #         batch_orig = rays_rgb_orig[i_orig:i_orig+int(N_rand/2)] # (256, 3, 3)
-            #         n_rays_orig=batch_orig.shape[0]
-            #         #print("#########n_rays_orig: ",n_rays_orig)
-            #         batch_orig= torch.transpose(batch_orig, 0, 1)
-            #         batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
-            #         i_orig += n_rays_orig
-
-            #     # ---- SAMPLE BATCH FROM AUGMENTED ----
-            #     N_remain=N_rand-n_rays_orig
-            #     batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_remain] # (768, 3, 3)
-            #     batch_virtual= torch.transpose(batch_virtual, 0, 1)
-            #     batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
-            #     #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
-            #     i_virtual +=N_remain
-
-
-            #     if i_virtual >= rays_rgb_virtual.shape[0]:
-            #         print("Shuffle data after an epoch!")
-            #         rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
-            #         rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
-            #         rays_rgb_orig = rays_rgb_orig[rand_idx_orig]
-            #         rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
-            #         i_orig = 0
-            #         i_virtual=0
-            #         flag_orig=1
-
-       
-
-            else:
-                if use_batching:
-                    # Random over all images
-                    batch = rays_rgbd[i_batch:i_batch+N_rand]  # [B, 4, 3]
-                    batch = torch.transpose(batch, 0, 1)
-                    
-                    # Split into components:
-                    # batch_rays: origin (3) + direction (3) [2, B, 3]
-                    # target_s: RGB (3) + depth (3) [2, B, 3]
-                    batch_rays, target_s = batch[:2], batch[2:]
-                    
-                    # For NeRF compatibility, we might want to separate RGB and depth
-                    target_rgb = target_s[0]  # [B, 3] - RGB values
-                    #print("---------------********************------------------", target_rgb)
-
-                    target_d = target_s[1][:, 0:1]  # [B, 1] - Take only first channel (repeated depth)
-                    #print("---------------********************------------------", target_d)
-                    i_batch += N_rand
-                    if i_batch >= rays_rgbd.shape[0]:
-                        print("Shuffle data after an epoch!")
-                        rand_idx = torch.randperm(rays_rgbd.shape[0])
-                        rays_rgbd = rays_rgbd[rand_idx]
-                        i_batch = 0
         else:
             # Random from one image
             img_i = np.random.choice(i_train)
@@ -1114,20 +1069,19 @@ def train():
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
         #####  Core optimization loop  #####
-        if flag_orig:
-            rgb_orig, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,
-                                                verbose=i < 10, retraw=True,
-                                                **render_kwargs_train)
-        if flag_virtual:
-            rgb_virtual, disp, acc, depth, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,
-                                                verbose=i < 10, retraw=True,
-                                                **render_kwargs_train)
-        
+        # if flag_orig:
+        #     rgb_orig, disp, acc, depth, extras_orig = render(H, W, K, chunk=args.chunk, rays=batch_rays_orig,
+        #                                         verbose=i < 10, retraw=True,
+        #                                         **render_kwargs_train)
+        # if flag_virtual:
+        #     rgb_virtual, disp, acc, depth, extras_virtual = render(H, W, K, chunk=args.chunk, rays=batch_rays_virtual,
+        #                                         verbose=i < 10, retraw=True,
+        #                                         **render_kwargs_train)
+        rgb, disp, acc, depth, extras = render(
+        H, W, K, chunk=args.chunk, rays=batch_rays,
+        verbose=i < 10, retraw=True, **render_kwargs_train
+    )
 
-        # rgb, disp, acc, depth, extras = render(H, W, K, chunk=args.chunk, rays=batch_rays,
-        #                                     verbose=i < 10, retraw=True,
-        #                                     **render_kwargs_train)
-        
 
         optimizer.zero_grad()
         if not args.depth_supervision:
@@ -1177,33 +1131,43 @@ def train():
                 
             # loss = loss + img_loss0_orig+args.landa*img_loss0_virtual
             # psnr = mse2psnr(loss)
+            ##################################################################################
 
-            b_orig = batch_rays_orig.shape[1] if flag_orig else 0
-            b_virt = batch_rays_virtual.shape[1] if flag_virtual else 0
+            # b_orig = batch_rays_orig.shape[1] if flag_orig else 0
+            # b_virt = batch_rays_virtual.shape[1] if flag_virtual else 0
 
-            loss_num = 0.0
-            loss_fine=0
-            denom   = 0
+            # loss_num = 0.0
+            # loss_fine=0
+            # denom   = 0
 
-            if b_orig > 0:
-                loss_num += b_orig * img2mse(rgb_orig,     target_orig)
-                loss_fine += b_orig * img2mse(rgb_orig,     target_orig)
-                if 'rgb0' in extras_orig:
-                    loss_num += b_orig * img2mse(extras_orig['rgb0'], target_orig)
-                denom += b_orig
+            # if b_orig > 0:
+            #     loss_num += b_orig * img2mse(rgb_orig,     target_orig)
+            #     loss_fine += b_orig * img2mse(rgb_orig,     target_orig)
+            #     if 'rgb0' in extras_orig:
+            #         loss_num += b_orig * img2mse(extras_orig['rgb0'], target_orig)
+            #     denom += b_orig
 
-            if b_virt > 0:
-                loss_num += args.landa * b_virt * img2mse(rgb_virtual,     target_virtual)
-                loss_fine += args.landa * b_virt * img2mse(rgb_virtual,     target_virtual)
-                if 'rgb0' in extras_virtual:
-                    loss_num += args.landa * b_virt * img2mse(extras_virtual['rgb0'], target_virtual)
-                denom += args.landa * b_virt
+            # if b_virt > 0:
+            #     loss_num += args.landa * b_virt * img2mse(rgb_virtual,     target_virtual)
+            #     loss_fine += args.landa * b_virt * img2mse(rgb_virtual,     target_virtual)
+            #     if 'rgb0' in extras_virtual:
+            #         loss_num += args.landa * b_virt * img2mse(extras_virtual['rgb0'], target_virtual)
+            #     denom += args.landa * b_virt
 
-            loss = loss_num / max(denom, 1)
-            loss_f=loss_fine/max(denom, 1)
-            psnr = mse2psnr(loss_f)
-   
+            # loss = loss_num / max(denom, 1)
+            # loss_f=loss_fine/max(denom, 1)
+            # psnr = mse2psnr(loss_f)
+            ####################################################################################
+            per_ray = ((rgb - target) ** 2).mean(dim=1)          # [B]
+            loss = (wts * per_ray).sum() / wts.sum()
 
+            if 'rgb0' in extras:
+                per_ray0 = ((extras['rgb0'] - target) ** 2).mean(dim=1)
+                loss += (wts * per_ray0).sum() / wts.sum()
+
+            # PSNR for logging (fine-only, unweighted to avoid mix-induced jumps)
+            with torch.no_grad():
+                psnr = mse2psnr(((rgb - target) ** 2).mean())
 
         else:
             # print(f"----------------------------\n RGB: {rgb} \n target_RGB: {target_rgb} \n  epth: {depth} \n target_d:{target_d}")
