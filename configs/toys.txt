@@ -1,4 +1,4 @@
-expname = toys_update
+expname = prop_final
 basedir = ./logs
 datadir = ./dataset/toys_5_9
 dataset_type = llff
