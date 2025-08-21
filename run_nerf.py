@@ -1160,14 +1160,15 @@ def train():
             ####################################################################################
             per_ray = ((rgb - target) ** 2).mean(dim=1)          # [B]
             loss = (wts * per_ray).sum() / wts.sum()
+            psnr= mse2psnr(loss)
 
             if 'rgb0' in extras:
                 per_ray0 = ((extras['rgb0'] - target) ** 2).mean(dim=1)
                 loss += (wts * per_ray0).sum() / wts.sum()
 
             # PSNR for logging (fine-only, unweighted to avoid mix-induced jumps)
-            with torch.no_grad():
-                psnr = mse2psnr(((rgb - target) ** 2).mean())
+            # with torch.no_grad():
+            #     psnr = mse2psnr(((rgb - target) ** 2).mean())
 
         else:
             # print(f"----------------------------\n RGB: {rgb} \n target_RGB: {target_rgb} \n  epth: {depth} \n target_d:{target_d}")
