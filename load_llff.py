@@ -388,9 +388,12 @@ def load_llff_data(basedir, factor=8, recenter=True, bd_factor=.75, spherify=Fal
     poses_virtual[:,:3,3] *= sc
     bds_virtual *= sc
     
+    poses_all = np.concatenate([poses_orig, poses_virtual], axis=0)
+
     if recenter:
-        poses_orig = recenter_poses(poses_orig)
-        poses_virtual = recenter_poses(poses_virtual)
+        # poses_orig = recenter_poses(poses_orig)
+        # poses_virtual = recenter_poses(poses_virtual)
+        poses_all = recenter_poses(poses_all)
     if spherify:
         poses_orig, render_poses, bds_orig = spherify_poses(poses_orig, bds_orig)
         poses_virtual, _, bds_virtual = spherify_poses(poses_virtual, bds_virtual)
@@ -434,6 +437,9 @@ def load_llff_data(basedir, factor=8, recenter=True, bd_factor=.75, spherify=Fal
         # Generate poses for spiral path
         render_poses = render_path_spiral(c2w_path, up, rads, focal, zdelta, zrate=.5, rots=N_rots, N=N_views)
         
+    n_o = poses_orig.shape[0]
+    poses_orig    = poses_all[:n_o]
+    poses_virtual = poses_all[n_o:]
         
     render_poses = np.array(render_poses).astype(np.float32)
 
