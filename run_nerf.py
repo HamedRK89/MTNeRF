@@ -529,7 +529,7 @@ def config_parser():
                         help='do not reload weights from saved ckpt')
     parser.add_argument("--ft_path", type=str, default=None, 
                         help='specific weights npy file to reload for coarse network')
-    parser.add_argument("--landa", type=float, default=1., 
+    parser.add_argument("--landa", type=float, default=0.8, 
                         help='Regularization parameter for downweighting augmented images loss due to their groundtruth noise')
 
     # rendering options
@@ -871,7 +871,7 @@ def train():
             rays_rgbd = torch.Tensor(rays_rgbd).to(device)
             
 
-    N_iters = 300000 + 1
+    N_iters = 200000 + 1
     print('Begin')
     print('TRAIN views are', i_train)
     print('TEST views are', i_test)

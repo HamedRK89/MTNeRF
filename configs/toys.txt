@@ -1,4 +1,4 @@
-expname = prop_final
+expname = prop_final_deeeebugged
 basedir = ./logs
 datadir = ./dataset/toys_5_9
 dataset_type = llff
