@@ -1,1 +1,0 @@
-GT_00.png vs prop_scaled_loss.png: 17.32 dB

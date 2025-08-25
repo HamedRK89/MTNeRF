@@ -1,6 +1,0 @@
-GT_00.png vs random_00.png: 17.17 dB
-GT_00.png vs 100_00.png: 17.55 dB
-GT_00.png vs 150_00.png: 17.22 dB
-GT_12.png vs random_12.png: 16.04 dB
-GT_12.png vs 100_12.png: 16.27 dB
-GT_12.png vs 150_12.png: 16.11 dB
