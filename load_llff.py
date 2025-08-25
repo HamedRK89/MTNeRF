@@ -59,12 +59,16 @@ def _minify(basedir, factors=[], resolutions=[]):
         
         
         
-def _load_data(basedir, factor=None, width=None, height=None, load_imgs=True):
+def  _load_data(basedir, factor=None, width=None, height=None, load_imgs=True):
     
-    poses_arr = np.load(os.path.join(basedir, 'poses_bounds.npy'))
-    poses = poses_arr[:, :-2].reshape([-1, 3, 5]).transpose([1,2,0])
-    bds = poses_arr[:, -2:].transpose([1,0])
+    poses_arr_orig = np.load(os.path.join(basedir, 'poses_bounds_orig.npy'))
+    poses_orig = poses_arr_orig[:, :-2].reshape([-1, 3, 5]).transpose([1,2,0])
+    bds_orig = poses_arr_orig[:, -2:].transpose([1,0])
     
+    poses_arr_virtual = np.load(os.path.join(basedir, 'poses_bounds_virtual.npy'))
+    poses_virtual = poses_arr_virtual[:, :-2].reshape([-1, 3, 5]).transpose([1,2,0])
+    bds_virtual = poses_arr_virtual[:, -2:].transpose([1,0])
+
     img0 = [os.path.join(basedir, 'images', f) for f in sorted(os.listdir(os.path.join(basedir, 'images'))) \
             if f.endswith('JPG') or f.endswith('jpg') or f.endswith('png')][0]
     sh = imageio.imread(img0).shape
@@ -94,16 +98,19 @@ def _load_data(basedir, factor=None, width=None, height=None, load_imgs=True):
         return
     
     imgfiles = [os.path.join(imgdir, f) for f in sorted(os.listdir(imgdir)) if f.endswith('JPG') or f.endswith('jpg') or f.endswith('png')]
-    if poses.shape[-1] != len(imgfiles):
-        print( 'Mismatch between imgs {} and poses {} !!!!'.format(len(imgfiles), poses.shape[-1]) )
+    if (poses_orig.shape[-1] + poses_virtual.shape[-1]) != len(imgfiles):
+        print( 'Mismatch between imgs {} and poses {} !!!!'.format(len(imgfiles), (poses_orig.shape[-1] + poses_virtual.shape[-1])) )
         return
     
     sh = imageio.imread(imgfiles[0]).shape
-    poses[:2, 4, :] = np.array(sh[:2]).reshape([2, 1])
-    poses[2, 4, :] = poses[2, 4, :] * 1./factor
+    poses_orig[:2, 4, :] = np.array(sh[:2]).reshape([2, 1])
+    poses_orig[2, 4, :] = poses_orig[2, 4, :] * 1./factor
     
-    if not load_imgs:
-        return poses, bds
+    poses_virtual[:2, 4, :] = np.array(sh[:2]).reshape([2, 1])
+    poses_virtual[2, 4, :] = poses_virtual[2, 4, :] * 1./factor
+
+    # if not load_imgs:
+    #     return poses, bds
     
     def imread(f):
         if f.endswith('png'):
@@ -111,16 +118,55 @@ def _load_data(basedir, factor=None, width=None, height=None, load_imgs=True):
         else:
             return imageio.imread(f)
         
-    imgs = imgs = [imread(f)[...,:3]/255. for f in imgfiles]
-    imgs = np.stack(imgs, -1)  
-    
-    print('Loaded image data', imgs.shape, poses[:,-1,0])
-    return poses, bds, imgs
+    imgs_orig = [imread(f)[...,:3]/255. for f in imgfiles if 'virtual' not in f and not print(f)]
+    imgs_orig = np.stack(imgs_orig, -1)  
 
+    imgs_virtual = [imread(f)[...,:3]/255. for f in imgfiles if 'virtual' in f and not print(f)]
+    imgs_virtual = np.stack(imgs_virtual, -1) 
     
-            
-            
+    print('Loaded ORIGINAL image data', imgs_orig.shape, poses_orig[:,-1,0])
+    print('Loaded VIRTUAL image data', imgs_virtual.shape, poses_virtual[:,-1,0])
     
+    return poses_orig, bds_orig, imgs_orig, poses_virtual, bds_virtual, imgs_virtual
+
+  
+def _load_depth_data(basedir, factor=None, load_depth=True):
+    poses_arr = np.load(os.path.join(basedir, 'poses_bounds.npy'))
+    poses = poses_arr[:, :-2].reshape([-1, 3, 5]).transpose([1,2,0])
+
+    sfx = f'_{factor}'
+    _minify(basedir, factor, load_depth=True)
+    depth_dir = Path(basedir) / f'depths{sfx}'
+
+    if not os.path.exists(depth_dir):
+        print(depth_dir, 'does NOT exist!!!! returning')
+        return
+    
+    depthfiles = [os.path.join(depth_dir, f) for f in sorted(os.listdir(depth_dir)) \
+                  if f.lower().endswith('.png')]
+    
+    if poses.shape[-1] != len(depthfiles):
+        print(f'Mismatch between depths {len(depthfiles)} and poses {poses.shape[-1]} !!!!')
+        return
+
+    def imread(f):
+        if f.endswith('png'):
+            return imageio.imread(f, ignoregamma=True)
+        else:
+            return imageio.imread(f)
+    
+    depths = [imread(f)[..., 0]/255. for f in depthfiles]
+    depths = np.stack(depths, -1)
+    
+    #depths = [iio.imread(f, mode='F') for f in depthfiles]
+    print("Loaded depth data:", depths.shape)
+
+    depths = np.moveaxis(depths, -1, 0).astype(np.float32)
+    #depths = np.array(depths)
+    depths = depths.astype(np.float32)
+    print("shape of depths after loading:", depths.shape)
+
+    return depths
 
 def normalize(x):
     return x / np.linalg.norm(x)
@@ -243,39 +289,57 @@ def spherify_poses(poses, bds):
 def load_llff_data(basedir, factor=8, recenter=True, bd_factor=.75, spherify=False, path_zflat=False):
     
 
-    poses, bds, imgs = _load_data(basedir, factor=factor) # factor=8 downsamples original imgs by 8x
-    print('Loaded', basedir, bds.min(), bds.max())
+    poses_orig, bds_orig, imgs_orig, poses_virtual, bds_virtual, imgs_virtual = _load_data(basedir, factor=factor) # factor=8 downsamples original imgs by 8x
+    #print('Loaded', basedir, bds.min(), bds.max())
     
     # Correct rotation matrix ordering and move variable dim to axis 0
-    poses = np.concatenate([poses[:, 1:2, :], -poses[:, 0:1, :], poses[:, 2:, :]], 1)
-    poses = np.moveaxis(poses, -1, 0).astype(np.float32)
-    imgs = np.moveaxis(imgs, -1, 0).astype(np.float32)
-    images = imgs
-    bds = np.moveaxis(bds, -1, 0).astype(np.float32)
+    poses_orig = np.concatenate([poses_orig[:, 1:2, :], -poses_orig[:, 0:1, :], poses_orig[:, 2:, :]], 1)
+    poses_orig = np.moveaxis(poses_orig, -1, 0).astype(np.float32)
+    imgs_orig = np.moveaxis(imgs_orig, -1, 0).astype(np.float32)
+    images_orig = imgs_orig
+    bds_orig = np.moveaxis(bds_orig, -1, 0).astype(np.float32)
+
+    poses_virtual = np.concatenate([poses_virtual[:, 1:2, :], -poses_virtual[:, 0:1, :], poses_virtual[:, 2:, :]], 1)
+    poses_virtual = np.moveaxis(poses_virtual, -1, 0).astype(np.float32)
+    imgs_virtual = np.moveaxis(imgs_virtual, -1, 0).astype(np.float32)
+    images_virtual = imgs_virtual
+    bds_virtual = np.moveaxis(bds_virtual, -1, 0).astype(np.float32)
     
     # Rescale if bd_factor is provided
-    sc = 1. if bd_factor is None else 1./(bds.min() * bd_factor)
-    poses[:,:3,3] *= sc
-    bds *= sc
+    sc = 1. if bd_factor is None else 1./(bds_orig.min() * bd_factor)
     
+    poses_orig[:,:3,3] *= sc
+    bds_orig *= sc
+    
+    poses_virtual[:,:3,3] *= sc
+    bds_virtual *= sc
+    
+    poses_all = np.concatenate([poses_orig, poses_virtual], axis=0)
+
     if recenter:
-        poses = recenter_poses(poses)
-        
+        # poses_orig = recenter_poses(poses_orig)
+        # poses_virtual = recenter_poses(poses_virtual)
+        poses_all = recenter_poses(poses_all)
     if spherify:
-        poses, render_poses, bds = spherify_poses(poses, bds)
+        poses_orig, render_poses, bds_orig = spherify_poses(poses_orig, bds_orig)
+        poses_virtual, _, bds_virtual = spherify_poses(poses_virtual, bds_virtual)
 
     else:
         
-        c2w = poses_avg(poses)
-        print('recentered', c2w.shape)
-        print(c2w[:3,:4])
+        c2w_orig = poses_avg(poses_orig)
+        print('recentered', c2w_orig.shape)
+        print(c2w_orig[:3,:4])
+
+        c2w_virtual = poses_avg(poses_virtual)
+        print('recentered', c2w_virtual.shape)
+        print(c2w_virtual[:3,:4])
 
         ## Get spiral
         # Get average pose
-        up = normalize(poses[:, :3, 1].sum(0))
+        up = normalize(poses_orig[:, :3, 1].sum(0))
 
         # Find a reasonable "focus depth" for this dataset
-        close_depth, inf_depth = bds.min()*.9, bds.max()*5.
+        close_depth, inf_depth = bds_orig.min()*.9, bds_orig.max()*5.
         dt = .75
         mean_dz = 1./(((1.-dt)/close_depth + dt/inf_depth))
         focal = mean_dz
@@ -283,9 +347,9 @@ def load_llff_data(basedir, factor=8, recenter=True, bd_factor=.75, spherify=Fal
         # Get radii for spiral path
         shrink_factor = .8
         zdelta = close_depth * .2
-        tt = poses[:,:3,3] # ptstocam(poses[:3,3,:].T, c2w).T
+        tt = poses_orig[:,:3,3] # ptstocam(poses[:3,3,:].T, c2w).T
         rads = np.percentile(np.abs(tt), 90, 0)
-        c2w_path = c2w
+        c2w_path = c2w_orig
         N_views = 120
         N_rots = 2
         if path_zflat:
@@ -299,18 +363,24 @@ def load_llff_data(basedir, factor=8, recenter=True, bd_factor=.75, spherify=Fal
         # Generate poses for spiral path
         render_poses = render_path_spiral(c2w_path, up, rads, focal, zdelta, zrate=.5, rots=N_rots, N=N_views)
         
+    n_o = poses_orig.shape[0]
+    poses_orig    = poses_all[:n_o]
+    poses_virtual = poses_all[n_o:]
         
     render_poses = np.array(render_poses).astype(np.float32)
 
-    c2w = poses_avg(poses)
+    c2w_orig = poses_avg(poses_orig)
     print('Data:')
-    print(poses.shape, images.shape, bds.shape)
+    print(poses_orig.shape, images_orig.shape, bds_orig.shape)
     
-    dists = np.sum(np.square(c2w[:3,3] - poses[:,:3,3]), -1)
+    dists = np.sum(np.square(c2w_orig[:3,3] - poses_orig[:,:3,3]), -1)
     i_test = np.argmin(dists)
     print('HOLDOUT view is', i_test)
     
-    images = images.astype(np.float32)
-    poses = poses.astype(np.float32)
+    images_orig = images_orig.astype(np.float32)
+    poses_orig = poses_orig.astype(np.float32)
 
-    return images, poses, bds, render_poses, i_test
+    images_virtual = images_virtual.astype(np.float32)
+    poses_virtual = poses_virtual.astype(np.float32)
+
+    return images_orig, poses_orig, bds_orig, images_virtual, poses_virtual, bds_virtual, render_poses, i_test
