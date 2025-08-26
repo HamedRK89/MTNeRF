@@ -807,64 +807,6 @@ def train():
 
                 
 
-            # ### Proportional combination
-            # # ---- SAMPLE BATCH FROM ORIGINAL ----
-            #     if i_orig<rays_rgb_orig.shape[0]:
-            #         batch_orig = rays_rgb_orig[i_orig:i_orig+N_rand_orig] # (256, 3, 3)
-            #         n_rays_orig=batch_orig.shape[0]
-            #         batch_orig= torch.transpose(batch_orig, 0, 1)
-            #         batch_rays_orig, target_orig = batch_orig[:2], batch_orig[2]
-            #         #print("orig", i_orig, i_orig+N_rand_orig)
-            #         i_orig +=n_rays_orig
-            #     else:
-            #         n_rays_orig=0
-            #         flag_orig=0
-
-            #     # ---- SAMPLE BATCH FROM AUGMENTED ----
-            #     N_remain=N_rand-n_rays_orig
-            #     batch_virtual = rays_rgb_virtual[i_virtual:i_virtual+N_remain] # (768, 3, 3)
-            #     n_rays_virtual=batch_virtual.shape[0]
-            #     batch_virtual= torch.transpose(batch_virtual, 0, 1)
-            #     batch_rays_virtual, target_virtual = batch_virtual[:2], batch_virtual[2]
-            #     #print("\nvirtual", i_virtual, i_virtual+N_rand_virtual)
-            #     i_virtual += N_remain
-
-
-            #     if i_virtual >= rays_rgb_virtual.shape[0] and i_orig >= rays_rgb_orig.shape[0]:
-            #         print("Shuffle data after an epoch!")
-            #         rand_idx_orig = torch.randperm(rays_rgb_orig.shape[0])
-            #         rand_idx_virtual = torch.randperm(rays_rgb_virtual.shape[0])
-            #         rays_rgb_orig = rays_rgb_orig[rand_idx_orig]
-            #         rays_rgb_virtual = rays_rgb_virtual[rand_idx_virtual]
-            #         i_orig = 0
-            #         i_virtual=0
-            #         flag_orig=1
-
-            # else:
-            #     if use_batching:
-            #         # Random over all images
-            #         batch = rays_rgbd[i_batch:i_batch+N_rand]  # [B, 4, 3]
-            #         batch = torch.transpose(batch, 0, 1)
-                    
-            #         # Split into components:
-            #         # batch_rays: origin (3) + direction (3) [2, B, 3]
-            #         # target_s: RGB (3) + depth (3) [2, B, 3]
-            #         batch_rays, target_s = batch[:2], batch[2:]
-                    
-            #         # For NeRF compatibility, we might want to separate RGB and depth
-            #         target_rgb = target_s[0]  # [B, 3] - RGB values
-            #         #print("---------------********************------------------", target_rgb)
-
-            #         target_d = target_s[1][:, 0:1]  # [B, 1] - Take only first channel (repeated depth)
-            #         #print("---------------********************------------------", target_d)
-            #         i_batch += N_rand
-            #         if i_batch >= rays_rgbd.shape[0]:
-            #             print("Shuffle data after an epoch!")
-            #             rand_idx = torch.randperm(rays_rgbd.shape[0])
-            #             rays_rgbd = rays_rgbd[rand_idx]
-            #             i_batch = 0
-
-
 
             # ---- PROPORTIONAL COMBINATION (single render) ----
                 # how many from orig this step (fixed proportion)
@@ -960,33 +902,6 @@ def train():
         optimizer.zero_grad()
         if not args.depth_supervision:
 
-            ##################################################################################
-
-            # b_orig = batch_rays_orig.shape[1] if flag_orig else 0
-            # b_virt = batch_rays_virtual.shape[1] if flag_virtual else 0
-
-            # loss_num = 0.0
-            # loss_fine=0
-            # denom   = 0
-
-            # if b_orig > 0:
-            #     loss_num += b_orig * img2mse(rgb_orig,     target_orig)
-            #     loss_fine += b_orig * img2mse(rgb_orig,     target_orig)
-            #     if 'rgb0' in extras_orig:
-            #         loss_num += b_orig * img2mse(extras_orig['rgb0'], target_orig)
-            #     denom += b_orig
-
-            # if b_virt > 0:
-            #     loss_num += args.landa * b_virt * img2mse(rgb_virtual,     target_virtual)
-            #     loss_fine += args.landa * b_virt * img2mse(rgb_virtual,     target_virtual)
-            #     if 'rgb0' in extras_virtual:
-            #         loss_num += args.landa * b_virt * img2mse(extras_virtual['rgb0'], target_virtual)
-            #     denom += args.landa * b_virt
-
-            # loss = loss_num / max(denom, 1)
-            # loss_f=loss_fine/max(denom, 1)
-            # psnr = mse2psnr(loss_f)
-            ####################################################################################
             per_ray = ((rgb - target) ** 2).mean(dim=1)          # [B]
             loss = (wts * per_ray).sum() / wts.sum()
             psnr= mse2psnr(loss)
