@@ -147,6 +147,78 @@ class NeRF(nn.Module):
         self.alpha_linear.weight.data = torch.from_numpy(np.transpose(weights[idx_alpha_linear]))
         self.alpha_linear.bias.data = torch.from_numpy(np.transpose(weights[idx_alpha_linear+1]))
 
+class MultiHeadNeRF(nn.Module):
+    def __init__(self, D=8, W=256, input_ch=3, input_ch_views=3,
+                 output_ch=4, skips=[4], use_viewdirs=False, num_heads=2):
+        super().__init__()
+        self.D, self.W = D, W
+        self.input_ch, self.input_ch_views = input_ch, input_ch_views
+        self.skips, self.use_viewdirs = skips, use_viewdirs
+        self.num_heads = num_heads
+
+        # Shared trunk over 3D points
+        self.pts_linears = nn.ModuleList(
+            [nn.Linear(input_ch, W)] +
+            [nn.Linear(W, W) if i not in skips else nn.Linear(W + input_ch, W) for i in range(D-1)]
+        )
+
+        if use_viewdirs:
+            # Shared 'views' trunk
+            self.feature_linear = nn.Linear(W, W)
+            self.views_linears = nn.ModuleList([nn.Linear(input_ch_views + W, W // 2)])
+
+            # Branching heads
+            self.alpha_heads = nn.ModuleList([nn.Linear(W, 1) for _ in range(num_heads)])
+            self.rgb_heads   = nn.ModuleList([nn.Linear(W // 2, 3) for _ in range(num_heads)])
+        else:
+            # Single trunk + branching heads on full output
+            self.output_heads = nn.ModuleList([nn.Linear(W, output_ch) for _ in range(num_heads)])
+
+    def forward(self, x, head_idx=None):
+        """
+        x: [N, input_ch + input_ch_views] (if use_viewdirs) or [N, input_ch]
+        head_idx: [N] int {0,1} indicating which head to use per sample
+        """
+        if head_idx is None:
+            # default to head 0 (original)
+            head_idx = torch.zeros(x.shape[0], dtype=torch.long, device=x.device)
+
+        if self.use_viewdirs:
+            input_pts, input_views = torch.split(x, [self.input_ch, self.input_ch_views], dim=-1)
+        else:
+            input_pts, input_views = x, None
+
+        # Shared point MLP
+        h = input_pts
+        for i, layer in enumerate(self.pts_linears):
+            h = F.relu(layer(h))
+            if i in self.skips:
+                h = torch.cat([input_pts, h], dim=-1)
+
+        if self.use_viewdirs:
+            # Shared intermediates
+            alpha_shared = h
+            feat = self.feature_linear(h)
+            hdir = torch.cat([feat, input_views], dim=-1)
+            for layer in self.views_linears:
+                hdir = F.relu(layer(hdir))
+
+            # Compute all heads, then gather the right one per sample
+            alpha_all = torch.stack([head(alpha_shared) for head in self.alpha_heads], dim=1)  # [N,H,1]
+            rgb_all   = torch.stack([head(hdir)        for head in self.rgb_heads],   dim=1)  # [N,H,3]
+
+            idx_a = head_idx.view(-1,1,1).expand(-1,1,1)
+            idx_r = head_idx.view(-1,1,1).expand(-1,1,3)
+
+            alpha = torch.gather(alpha_all, 1, idx_a).squeeze(1)  # [N,1]
+            rgb   = torch.gather(rgb_all,   1, idx_r).squeeze(1)  # [N,3]
+            return torch.cat([rgb, alpha], dim=-1)
+        else:
+            # Compute all heads and pick
+            outs_all = torch.stack([head(h) for head in self.output_heads], dim=1)  # [N,H,output_ch]
+            idx = head_idx.view(-1,1,1).expand(-1,1,outs_all.shape[-1])
+            outs = torch.gather(outs_all, 1, idx).squeeze(1)  # [N,output_ch]
+            return outs
 
 
 # Ray helpers

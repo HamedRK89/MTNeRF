@@ -378,7 +378,6 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
 
 
 
-
 def config_parser():
 
     import configargparse
