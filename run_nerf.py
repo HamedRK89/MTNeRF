@@ -234,7 +234,7 @@ def render_path(render_poses, hwf, K, chunk, render_kwargs, gt_imgs=None, savedi
     for i, c2w in enumerate(tqdm(render_poses)):
         print(i, time.time() - t)
         t = time.time()
-        rgb, disp, acc, _ = render(H, W, K, chunk=chunk, c2w=c2w[:3,:4], **render_kwargs)
+        rgb, disp, acc, depth, _ = render(H, W, K, chunk=chunk, c2w=c2w[:3,:4], **render_kwargs)
         rgbs.append(rgb.cpu().numpy())
         disps.append(disp.cpu().numpy())
         if i==0:
@@ -378,6 +378,7 @@ def raw2outputs(raw, z_vals, rays_d, raw_noise_std=0, white_bkgd=False, pytest=F
 
 
 
+
 def config_parser():
 
     import configargparse
@@ -416,7 +417,7 @@ def config_parser():
                         help='do not reload weights from saved ckpt')
     parser.add_argument("--ft_path", type=str, default=None, 
                         help='specific weights npy file to reload for coarse network')
-    parser.add_argument("--landa", type=float, default=0.9, 
+    parser.add_argument("--landa", type=float, default=1.0, 
                         help='Regularization parameter for downweighting augmented images loss due to their groundtruth noise')
 
     # rendering options
@@ -489,12 +490,24 @@ def config_parser():
                         help='frequency of testset saving')
     parser.add_argument("--i_video",   type=int, default=50000, 
                         help='frequency of render_poses video saving')
+    # select GPU
+    parser.add_argument("--gpu_id", type=str, default=0, required=False,
+                        help="gpu id to use")
     # test set options
     parser.add_argument('--i_test', nargs='+', type=int, default=None,
                         help='A list of integers')
+    
+    # depth supervision
+    parser.add_argument("--depth_supervision", type=bool, default=False,
+                        help='True if depth data is available and will be used during training')
+    # debug
+    parser.add_argument("--debug", action='store_true')
+
+    # mac users
+    parser.add_argument("--mps", action='store_true',
+                        help="For Mac users if they want to use MPS GPU")
 
     return parser
-
 
 def train():
 
