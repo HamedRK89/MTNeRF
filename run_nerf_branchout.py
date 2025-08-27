@@ -428,7 +428,7 @@ def config_parser():
                         help='Regularization parameter for downweighting augmented images loss due to their groundtruth noise')
     #multitask branchout 
     parser.add_argument("--branch_from", type=str, default="heads",
-                        choices=["heads","views","features"],
+                        choices=["heads","views","feature"],
                         help="split point after the shared 8-layer trunk")
     
     #If you want σ to be shared in any of these (alpha_heads=alpha_linear : W->1)

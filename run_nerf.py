@@ -17,7 +17,7 @@ from load_llff import load_llff_data
 from load_deepvoxels import load_dv_data
 from load_blender import load_blender_data
 from load_LINEMOD import load_LINEMOD_data
-from split_head_nerf import SplitLayerNeRF
+
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -420,6 +420,14 @@ def config_parser():
                         help='specific weights npy file to reload for coarse network')
     parser.add_argument("--landa", type=float, default=1.0, 
                         help='Regularization parameter for downweighting augmented images loss due to their groundtruth noise')
+    #multitask branchout 
+    parser.add_argument("--branch_from", type=str, default="heads",
+                        choices=["heads","views","feature"],
+                        help="split point after the shared 8-layer trunk")
+    #If you want σ to be shared in any of these (alpha_heads=alpha_linear : W->1)
+    parser.add_argument("--share_alpha", action="store_true",
+                        help="keep σ head shared even when splitting earlier")
+
 
     # rendering options
     parser.add_argument("--N_samples", type=int, default=64, 
