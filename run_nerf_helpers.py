@@ -219,6 +219,183 @@ class MultiHeadNeRF(nn.Module):
             idx = head_idx.view(-1,1,1).expand(-1,1,outs_all.shape[-1])
             outs = torch.gather(outs_all, 1, idx).squeeze(1)  # [N,output_ch]
             return outs
+        
+class SplitLayerNeRF(nn.Module):
+    """
+    NeRF with shared 8-layer trunk (pts_linears) and configurable branching point:
+      - branch_from='heads'   : share trunk + feature_linear + views_linears; split only final heads
+      - branch_from='views'   : share trunk + feature_linear; split views_linears + rgb head (alpha head can be shared or per-head)
+      - branch_from='feature' : share trunk; split feature_linear + views_linears + rgb head (alpha head can be shared or per-head)
+
+    If use_viewdirs=False, views path is ignored; α head still used.
+    """
+    def __init__(self, D=8, W=256,
+                 input_ch=63,            # xyz embed size
+                 input_ch_views=27,      # dir embed size
+                 output_ch=4,            # usually 4 or 5 (we'll pad to 5 if needed)
+                 skips=[4],
+                 use_viewdirs=True,
+                 num_heads=2,
+                 branch_from='heads',    # 'heads' | 'views' | 'feature'
+                 share_alpha=False):     # if True, α head shared even when branching earlier
+        super().__init__()
+        assert D >= 1
+        assert branch_from in ('heads','views','feature')
+
+        self.D = D
+        self.W = W
+        self.input_ch = input_ch
+        self.input_ch_views = input_ch_views
+        self.skips = set(skips or [])
+        self.use_viewdirs = use_viewdirs
+        self.output_ch = output_ch
+        self.num_heads = num_heads
+        self.branch_from = branch_from
+        self.share_alpha = share_alpha
+
+        # -------------------------
+        # Shared 8-layer xyz trunk
+        # -------------------------
+        self.pts_linears = nn.ModuleList()
+        self.pts_linears.append(nn.Linear(input_ch, W))
+        for i in range(1, D):
+            in_ch = W + (input_ch if i in self.skips else 0)
+            self.pts_linears.append(nn.Linear(in_ch, W))
+
+        # -------------------------
+        # Alpha (σ) head: shared or per-head
+        # (depends only on trunk features)
+        # -------------------------
+        if share_alpha:
+            self.alpha_shared = nn.Linear(W, 1)
+            self.alpha_heads = None
+        else:
+            self.alpha_shared = None
+            self.alpha_heads = nn.ModuleList([nn.Linear(W, 1) for _ in range(num_heads)])
+
+        # -------------------------
+        # feature_linear: shared or per-head
+        # -------------------------
+        if branch_from == 'feature':
+            self.feature_shared = None
+            self.feature_heads = nn.ModuleList([nn.Linear(W, W) for _ in range(num_heads)])
+        else:
+            self.feature_shared = nn.Linear(W, W)
+            self.feature_heads = None
+
+        # -------------------------
+        # views_linears (+ rgb head): shared or per-head
+        # Follow the common NeRF setting: one view MLP to W//2 then rgb head.
+        # -------------------------
+        self.view_hidden = W // 2 if self.use_viewdirs else 0
+
+        def make_view_block():
+            # single layer: concat(feature, dir_embed) -> W//2
+            return nn.ModuleList([nn.Linear(W + self.input_ch_views, self.view_hidden)])
+
+        if self.use_viewdirs:
+            if branch_from in ('views','feature'):
+                self.views_heads = nn.ModuleList([make_view_block() for _ in range(num_heads)])
+                self.views_shared = None
+            else:
+                self.views_shared = make_view_block()
+                self.views_heads = None
+        else:
+            self.views_shared = None
+            self.views_heads = None
+
+        # RGB heads are always per-head in multi-domain setups
+        if self.use_viewdirs:
+            self.rgb_heads = nn.ModuleList([nn.Linear(self.view_hidden, 3) for _ in range(num_heads)])
+        else:
+            # If not using viewdirs, RGB comes straight from W features
+            self.rgb_heads = nn.ModuleList([nn.Linear(W, 3) for _ in range(num_heads)])
+
+    # ----- helpers -----
+    @staticmethod
+    def _apply_block(block, x):
+        # block is ModuleList of linear layers with ReLU between
+        for l in block:
+            x = F.relu(l(x), inplace=True)
+        return x
+
+    def _route_linear_per_head(self, linears, x, head_idx):
+        """Apply per-head Linear (out_features known from module)."""
+        # head_idx: [N] long
+        out_dim = linears[0].out_features
+        out = x.new_zeros(x.shape[0], out_dim)
+        for h in range(len(linears)):
+            mask = (head_idx == h)
+            if mask.any():
+                out[mask] = linears[h](x[mask])
+        return out
+
+    def _route_viewblock_per_head(self, blocks, x, head_idx):
+        """Apply per-head view block (ModuleList of layers)."""
+        # get output dim by running 1 example through head 0
+        with torch.no_grad():
+            dummy = self._apply_block(blocks[0], x[:1])
+            out_dim = dummy.shape[-1]
+        out = x.new_zeros(x.shape[0], out_dim)
+        for h in range(len(blocks)):
+            mask = (head_idx == h)
+            if mask.any():
+                out[mask] = self._apply_block(blocks[h], x[mask])
+        return out
+
+    # ----- forward -----
+    def forward(self, x, head_idx=None):
+        """
+        x: [N, input_ch (+ input_ch_views if use_viewdirs)]
+        head_idx: None or [N] long (domain id per sample)
+        """
+        if head_idx is None:
+            # default to head 0
+            head_idx = torch.zeros(x.shape[0], dtype=torch.long, device=x.device)
+
+        # Split xyz / dir embeddings
+        if self.use_viewdirs:
+            x_pts, x_dirs = x[..., :self.input_ch], x[..., self.input_ch:]
+        else:
+            x_pts, x_dirs = x, None
+
+        # Shared xyz trunk
+        h = x_pts
+        for i, l in enumerate(self.pts_linears):
+            h = F.relu(l(h), inplace=True)
+            if i in self.skips:
+                h = torch.cat([x_pts, h], -1)
+
+        # Alpha (σ)
+        if self.alpha_shared is not None:
+            alpha = self.alpha_shared(h)
+        else:
+            alpha = self._route_linear_per_head(self.alpha_heads, h, head_idx)
+
+        # feature_linear
+        if self.feature_heads is not None:
+            feat = self._route_linear_per_head(self.feature_heads, h, head_idx)
+        else:
+            feat = self.feature_shared(h)
+
+        # Color branch
+        if self.use_viewdirs:
+            v_in = torch.cat([feat, x_dirs], -1)
+            if self.views_shared is not None:
+                v = self._apply_block(self.views_shared, v_in)
+            else:
+                v = self._route_viewblock_per_head(self.views_heads, v_in, head_idx)
+            # RGB per head
+            rgb = self._route_linear_per_head(self.rgb_heads, v, head_idx)
+        else:
+            # No viewdirs: rgb directly from features
+            rgb = self._route_linear_per_head(self.rgb_heads, feat, head_idx)
+
+        raw = torch.cat([rgb, alpha], -1)  # [N, 4]
+        if self.output_ch == 5:
+            pad = torch.zeros_like(alpha)
+            raw = torch.cat([raw, pad], -1)  # [N, 5]
+        return raw
 
 
 # Ray helpers
