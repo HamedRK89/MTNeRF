@@ -17,6 +17,7 @@ from load_llff import load_llff_data
 from load_deepvoxels import load_dv_data
 from load_blender import load_blender_data
 from load_LINEMOD import load_LINEMOD_data
+from split_head_nerf import SplitLayerNeRF
 
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
