@@ -1,9 +1,9 @@
-expname = Multi_head_1.0_bfeature
-basedir = ./logs
+expname = Toys_MH_1_fullRes
+basedir = ./logs_fullRes
 datadir = ./dataset/toys_5_9
 dataset_type = llff
 
-factor = 4
+factor = 1
 llffhold = 8
 
 N_rand = 1024

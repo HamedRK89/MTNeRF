@@ -362,9 +362,10 @@ class SplitLayerNeRF(nn.Module):
         # Shared xyz trunk
         h = x_pts
         for i, l in enumerate(self.pts_linears):
-            h = F.relu(l(h), inplace=True)
             if i in self.skips:
                 h = torch.cat([x_pts, h], -1)
+            h = F.relu(l(h), inplace=True)
+            
 
         # Alpha (σ)
         if self.alpha_shared is not None:
