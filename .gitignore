@@ -10,6 +10,8 @@ venv/
 *.npy
 *.npz
 *.dae
+*.tar
 dataset/*
 logs/*
+logs_fullRes/
 .vscode/
