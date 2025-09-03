@@ -126,17 +126,19 @@ def batchify(fn, chunk):
     return ret
 
 def run_network(pts, viewdirs, fn, embed_fn, embeddirs_fn, netchunk=1024*64):
-    # pts: [N_rays, N_samples, 3]
-    inputs_flat = pts.reshape(-1, pts.shape[-1])
-    embedded = embed_fn(inputs_flat)
-    if viewdirs is not None:
-        input_dirs = viewdirs[:, None].expand(pts.shape)
-        input_dirs_flat = input_dirs.reshape(-1, input_dirs.shape[-1])
-        embedded_dirs = embeddirs_fn(input_dirs_flat)
-        embedded = torch.cat([embedded, embedded_dirs], dim=-1)
-    outputs_flat = batchify(lambda x: fn(x), netchunk)(embedded)
-    outputs = outputs_flat.reshape(list(pts.shape[:-1]) + [outputs_flat.shape[-1]])
+    pts_flat = torch.reshape(pts, [-1, pts.shape[-1]])
+    embedded = embed_fn(pts_flat)
+
+    if viewdirs is not None and viewdirs.shape[-1] > 0:
+        input_dirs = viewdirs[:, None].expand(pts.shape)   # [N_rays, N_samples, 3]
+        input_dirs = torch.reshape(input_dirs, [-1, input_dirs.shape[-1]])
+        embedded_dirs = embeddirs_fn(input_dirs)
+        embedded = torch.cat([embedded, embedded_dirs], -1)
+
+    outputs_flat = batchify(fn, netchunk)(embedded)
+    outputs = torch.reshape(outputs_flat, list(pts.shape[:-1]) + [outputs_flat.shape[-1]])
     return outputs
+
 
 @torch.no_grad()
 def ndc_rays(H, W, focal, near, rays_o, rays_d):
