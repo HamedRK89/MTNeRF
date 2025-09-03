@@ -125,20 +125,29 @@ def batchify(fn, chunk):
         return torch.cat(outs, dim=0)
     return ret
 
-def run_network(pts, viewdirs, fn, embed_fn, embeddirs_fn, netchunk=1024*64):
-    pts_flat = torch.reshape(pts, [-1, pts.shape[-1]])
-    embedded = embed_fn(pts_flat)
+def run_network(inputs, viewdirs, fn, embed_fn, embeddirs_fn, netchunk=1024*64):
+    """Prepares inputs and applies network 'fn'."""
+    # Flatten points
+    inputs_flat = torch.reshape(inputs, [-1, inputs.shape[-1]])
+    embedded = embed_fn(inputs_flat)   # [N_rays*N_samples, in_dim_pts]
 
-    if viewdirs is not None and viewdirs.shape[-1] > 0:
-        # expand from [N_rays, 3] -> [N_rays, N_samples, 3]
-        input_dirs = viewdirs[:, None, :].expand(pts.shape)  
-        input_dirs = torch.reshape(input_dirs, [-1, input_dirs.shape[-1]])
-        embedded_dirs = embeddirs_fn(input_dirs)
+    # If using view directions
+    if viewdirs is not None and embeddirs_fn is not None:
+        # Expand [N_rays, 3] -> [N_rays, N_samples, 3]
+        input_dirs = viewdirs[:, None, :].expand(inputs.shape)
+        input_dirs_flat = torch.reshape(input_dirs, [-1, input_dirs.shape[-1]])
+        embedded_dirs = embeddirs_fn(input_dirs_flat)  # [N_rays*N_samples, in_dim_dirs]
+
+        # Concatenate point + direction embeddings
         embedded = torch.cat([embedded, embedded_dirs], -1)
 
+    # Apply the NeRF network in chunks
     outputs_flat = batchify(fn, netchunk)(embedded)
-    outputs = torch.reshape(outputs_flat, list(pts.shape[:-1]) + [outputs_flat.shape[-1]])
+
+    # Reshape back to [N_rays, N_samples, -1]
+    outputs = torch.reshape(outputs_flat, list(inputs.shape[:-1]) + [outputs_flat.shape[-1]])
     return outputs
+
 
 
 @torch.no_grad()
