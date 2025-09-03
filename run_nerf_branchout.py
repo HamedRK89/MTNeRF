@@ -504,7 +504,7 @@ def config_parser():
                         help='frequency of weight ckpt saving')
     parser.add_argument("--i_testset", type=int, default=50000, 
                         help='frequency of testset saving')
-    parser.add_argument("--i_video",   type=int, default=50000, 
+    parser.add_argument("--i_video",   type=int, default=200000, 
                         help='frequency of render_poses video saving')
     # select GPU
     parser.add_argument("--gpu_id", type=str, default=0, required=False,
@@ -565,8 +565,9 @@ def train():
         
         if args.i_test is not None:
             i_test = args.i_test
-
+        
         i_val = i_test
+        print("testxxxxxxxxxxxxxxxxxxxxxxxxx", i_test, i_val)
         i_train = np.array([i for i in np.arange(num_orig) if
                         (i not in i_test and i not in i_val)])
         print("i_train:", i_train)
@@ -574,7 +575,7 @@ def train():
         print('DEFINING BOUNDS')
         if args.no_ndc:
             near = min(bds_orig.min(), bds_virtual.min()) * .9
-            far = max(bds_orig.max(), bds_virtual.max()) * 1.0    
+            far = max(bds_orig.max(), bds_virtual.max()) * 1.0      
       
         else:
             near = 0.

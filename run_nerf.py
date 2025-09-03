@@ -497,7 +497,7 @@ def config_parser():
                         help='frequency of weight ckpt saving')
     parser.add_argument("--i_testset", type=int, default=50000, 
                         help='frequency of testset saving')
-    parser.add_argument("--i_video",   type=int, default=50000, 
+    parser.add_argument("--i_video",   type=int, default=200000, 
                         help='frequency of render_poses video saving')
     # select GPU
     parser.add_argument("--gpu_id", type=str, default=0, required=False,
