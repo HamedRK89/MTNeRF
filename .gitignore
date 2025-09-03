@@ -11,7 +11,12 @@ venv/
 *.npz
 *.dae
 *.tar
+*.xlsx
+*.txt
+*.bat
+*.bak
 dataset/*
 logs/*
 logs_fullRes/
+Results_psnr/
 .vscode/
