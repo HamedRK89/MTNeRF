@@ -10,6 +10,20 @@ from splitless_nerf_model import SingleNeRF, render_rays, run_network, ndc_rays
 from run_nerf_helpers import get_embedder, get_rays_np, img2mse, mse2psnr
 from load_llff import load_llff_data
 
+def pack_batch(batch):  # batch: [B,3,3] -> (ray_batch tensor)
+    rays_o = batch[:,0,:]   # [B,3]
+    rays_d = batch[:,1,:]   # [B,3]
+    target = batch[:,2,:]   # [B,3]
+    near = torch.zeros_like(rays_o[..., :1])
+    far  = torch.ones_like(rays_o[..., :1])
+
+    # normalize ray directions for viewdirs
+    viewdirs = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
+
+    # concat: [rays_o, rays_d, near, far, viewdirs] = [B, 11]
+    ray_batch = torch.cat([rays_o, rays_d, near, far, viewdirs], dim=-1)
+    return ray_batch, target
+
 # --------------- device pick (cpu/cuda/mps) ---------------
 def pick_device(prefer_mps=False):
     if prefer_mps and torch.backends.mps.is_available():
@@ -175,20 +189,6 @@ def main():
     # renderer closures
     def network_query_fn(pts, viewdirs, network_fn):
         return run_network(pts, viewdirs, network_fn, embed_fn, embeddirs_fn, netchunk=1024*64)
-
-def pack_batch(batch):  # batch: [B,3,3] -> (ray_batch tensor)
-    rays_o = batch[:,0,:]   # [B,3]
-    rays_d = batch[:,1,:]   # [B,3]
-    target = batch[:,2,:]   # [B,3]
-    near = torch.zeros_like(rays_o[..., :1])
-    far  = torch.ones_like(rays_o[..., :1])
-
-    # normalize ray directions for viewdirs
-    viewdirs = rays_d / torch.norm(rays_d, dim=-1, keepdim=True)
-
-    # concat: [rays_o, rays_d, near, far, viewdirs] = [B, 11]
-    ray_batch = torch.cat([rays_o, rays_d, near, far, viewdirs], dim=-1)
-    return ray_batch, target
 
 
     # CSV logger

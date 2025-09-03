@@ -1,4 +1,4 @@
-expname = Multi_head_1.0_bfeature
+expname = Toys_MH_Gradients
 basedir = ./logs
 datadir = ./dataset/toys_5_9
 dataset_type = llff
