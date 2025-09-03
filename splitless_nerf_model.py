@@ -130,7 +130,8 @@ def run_network(pts, viewdirs, fn, embed_fn, embeddirs_fn, netchunk=1024*64):
     embedded = embed_fn(pts_flat)
 
     if viewdirs is not None and viewdirs.shape[-1] > 0:
-        input_dirs = viewdirs[:, None].expand(pts.shape)   # [N_rays, N_samples, 3]
+        # expand from [N_rays, 3] -> [N_rays, N_samples, 3]
+        input_dirs = viewdirs[:, None, :].expand(pts.shape)  
         input_dirs = torch.reshape(input_dirs, [-1, input_dirs.shape[-1]])
         embedded_dirs = embeddirs_fn(input_dirs)
         embedded = torch.cat([embedded, embedded_dirs], -1)
