@@ -816,7 +816,7 @@ def train():
                     extra_v = min(short, rem_v - n_v); n_v += extra_v; short -= extra_v
                 # if short > 0 here, final batch is just smaller than N_rand
 
-                parts, wparts = [], []
+                parts, wparts=[], []
                 if n_o > 0:
                     bo = rays_rgb_orig[i_orig:i_orig + n_o]; i_orig += n_o     # [n_o,3,3]
                     parts.append(bo)
@@ -832,6 +832,11 @@ def train():
                 # to [2,B,3] rays + [B,3] target
                 b = batch.transpose(0, 1)                # [3,B,3]
                 batch_rays, target = b[:2], b[2]
+
+                bo=batch.transpose(0,1)
+                bv=batch.transpose(0,1)
+                batch_rays_o, target_o = bo[:2], bo[2]
+                batch_rays_v, target_v = bv[:2], bv[2]
 
                 # domains: 0 for original, 1 for virtual, matching the concatenation order
                 dom_parts = []
@@ -882,9 +887,19 @@ def train():
                 batch_rays = torch.stack([rays_o, rays_d], 0)
                 target_s = target[select_coords[:, 0], select_coords[:, 1]]  # (N_rand, 3)
 
-        rgb, disp, acc, depth, extras = render(
+#         rgb, disp, acc, depth, extras = render(
+#     H, W, K, chunk=args.chunk,
+#     rays=(batch_rays[0], batch_rays[1], domains),
+#     verbose=i < 10, retraw=True, **render_kwargs_train
+# )
+        rgb_o, disp, acc, depth, extras_o = render(
     H, W, K, chunk=args.chunk,
-    rays=(batch_rays[0], batch_rays[1], domains),
+    rays=(batch_rays_o[0], batch_rays_o[1], domains),
+    verbose=i < 10, retraw=True, **render_kwargs_train
+)
+        rgb_v, disp, acc, depth, extras_v = render(
+    H, W, K, chunk=args.chunk,
+    rays=(batch_rays_v[0], batch_rays_v[1], domains),
     verbose=i < 10, retraw=True, **render_kwargs_train
 )
 
@@ -893,13 +908,31 @@ def train():
         optimizer.zero_grad()
         if not args.depth_supervision:
 
-            per_ray = ((rgb - target) ** 2).mean(dim=1)          # [B]
-            loss = (wts * per_ray).sum() / wts.sum()
-            psnr= mse2psnr(loss)
+            # per_ray = ((rgb - target) ** 2).mean(dim=1)          # [B]
+            # loss = (wts * per_ray).sum() / wts.sum()
+            # psnr= mse2psnr(loss)
 
-            if 'rgb0' in extras:
-                per_ray0 = ((extras['rgb0'] - target) ** 2).mean(dim=1)
-                loss += (wts * per_ray0).sum() / wts.sum()
+
+            # if 'rgb0' in extras:
+            #     per_ray0 = ((extras['rgb0'] - target) ** 2).mean(dim=1)
+            #     loss += (wts * per_ray0).sum() / wts.sum()
+
+
+
+
+            loss_o=((rgb_o - target_o) ** 2).mean(dim=1) 
+            loss_v=((rgb_v - target_v) ** 2).mean(dim=1) 
+            loss=loss_o+args.landa*loss_v
+            psnr=mse2psnr(loss)
+
+            if 'rgb0' in extras_o:
+                loss_rgb0_o=((extras_o['rgb0'] - target_o) ** 2).mean(dim=1)
+                loss+=loss_rgb0_o
+
+            if 'rgb0' in extras_v:
+                loss_rgb0_v=((extras_v['rgb0'] - target_v) ** 2).mean(dim=1)
+                loss+=args.landa*loss_rgb0_v
+                
 
             # PSNR for logging (fine-only, unweighted to avoid mix-induced jumps)
             # with torch.no_grad():
