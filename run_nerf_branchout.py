@@ -909,25 +909,29 @@ def train():
         optimizer.zero_grad()
         if not args.depth_supervision:
 
-            per_ray = ((rgb - target) ** 2)
-            
-            print("#############Per_ray: ",per_ray)          # [B]
-            loss = (wts * per_ray).sum() / wts.sum()
-            psnr= mse2psnr(loss)
-
-            if 'rgb0' in extras:
-                per_ray0 = ((extras['rgb0'] - target) ** 2).mean(dim=1)
-                loss += (wts * per_ray0).sum() / wts.sum()
-            
-            # per_ray = ((rgb - target) ** 2).mean(dim=1)          # [B]
-            # weights= (wts * per_ray)
-
+            # per_ray = ((rgb - target) ** 2).mean(dim=1)      
+            # loss = (wts * per_ray).sum() / wts.sum()
             # psnr= mse2psnr(loss)
-
 
             # if 'rgb0' in extras:
             #     per_ray0 = ((extras['rgb0'] - target) ** 2).mean(dim=1)
             #     loss += (wts * per_ray0).sum() / wts.sum()
+            
+
+
+
+            per_ray = ((rgb - target) ** 2).mean(dim=1)          # [B]
+            w_sum= (wts * per_ray)
+            loss_o=w_sum[:size_o].sum()/size_o
+            loss_v=w_sum[size_o:size_v].sum()/size_v
+            loss=loss_o+loss_v
+
+            psnr= mse2psnr(loss)
+
+
+            if 'rgb0' in extras:
+                per_ray0 = ((extras['rgb0'] - target) ** 2).mean(dim=1)
+                loss += (wts * per_ray0).sum() / wts.sum()
 
 
 
