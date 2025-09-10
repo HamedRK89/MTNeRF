@@ -335,7 +335,8 @@ class SplitLayerNeRF(nn.Module):
             self.views1_heads = None
             self.views_shared = None
             self.views_heads = None
-        self.view.hidden=W//2  if self.use_viewdirs else 0
+
+        self.view_hidden=W//2  if self.use_viewdirs else 0
 
 
 
