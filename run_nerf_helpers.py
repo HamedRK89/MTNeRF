@@ -301,7 +301,7 @@ class SplitLayerNeRF(nn.Module):
         #         self.views_heads = nn.ModuleList([make_view_block() for _ in range(num_heads)])
         #         self.views_shared = None
         #     else:
-        #         self.views_shared = make_view_block(self.view_hidden)
+        #         self.views_shared = make_view_block()
         #         self.views_heads = None      
         # else:
         #     self.views_shared = None
@@ -310,6 +310,8 @@ class SplitLayerNeRF(nn.Module):
 
         
         self.view1_hidden= W  if self.use_viewdirs else 0
+        self.view_hidden= W//2  if self.use_viewdirs else 0
+        
 
         def make_view1_block():
             # single layer: concat(feature, dir_embed) -> W
@@ -320,14 +322,14 @@ class SplitLayerNeRF(nn.Module):
                 self.views1_heads = nn.ModuleList([make_view1_block() for _ in range(num_heads)])
                 self.views1_shared = None
             else:
-                self.views1_shared =nn.ModuleList(make_view1_block())
+                self.views1_shared =make_view1_block()
                 self.views1_heads = None
                 
             if branch_from in ('views1','views','feature'):
                 self.views_heads = nn.ModuleList([nn.ModuleList([nn.Linear(W ,W//2)]) for _ in range(num_heads)])
                 self.views_shared = None
             else:
-                self.views_shared = nn.ModuleList(nn.ModuleList([nn.Linear(W ,W//2)]))
+                self.views_shared = nn.ModuleList([nn.Linear(W ,W//2)])
                 self.views_heads = None
                 
         else:
@@ -336,7 +338,7 @@ class SplitLayerNeRF(nn.Module):
             self.views_shared = None
             self.views_heads = None
 
-        self.view_hidden=W//2  if self.use_viewdirs else 0
+        
 
 
 
@@ -415,13 +417,38 @@ class SplitLayerNeRF(nn.Module):
         else:
             feat = self.feature_shared(h)
 
+        # # Color branch
+        # if self.use_viewdirs:
+        #     v_in = torch.cat([feat, x_dirs], -1)
+        #     if self.views_shared is not None:
+        #         v = self._apply_block(self.views_shared, v_in)
+        #     else:
+        #         v = self._route_viewblock_per_head(self.views_heads, v_in, head_idx)
+        #     # RGB per head
+        #     rgb = self._route_linear_per_head(self.rgb_heads, v, head_idx)
+        # else:
+        #     # No viewdirs: rgb directly from features
+        #     rgb = self._route_linear_per_head(self.rgb_heads, feat, head_idx)
+
+        # raw = torch.cat([rgb, alpha], -1)  # [N, 4]
+        # if self.output_ch == 5:
+        #     pad = torch.zeros_like(alpha)
+        #     raw = torch.cat([raw, pad], -1)  # [N, 5]
+        # return raw
+        #########################################################################################################
         # Color branch
         if self.use_viewdirs:
             v_in = torch.cat([feat, x_dirs], -1)
-            if self.views_shared is not None:
-                v = self._apply_block(self.views_shared, v_in)
+            if self.views1_shared is not None:
+                v1 = self._apply_block(self.views1_shared, v_in)
             else:
-                v = self._route_viewblock_per_head(self.views_heads, v_in, head_idx)
+                v1 = self._route_viewblock_per_head(self.views1_heads, v_in, head_idx)
+
+            if self.views_shared is not None:
+                v = self._apply_block(self.views_shared, v1)
+            else:
+                v = self._route_viewblock_per_head(self.views1_heads, v1, head_idx)
+
             # RGB per head
             rgb = self._route_linear_per_head(self.rgb_heads, v, head_idx)
         else:
@@ -433,7 +460,7 @@ class SplitLayerNeRF(nn.Module):
             pad = torch.zeros_like(alpha)
             raw = torch.cat([raw, pad], -1)  # [N, 5]
         return raw
-
+#####################################################################################################################
 
 # Ray helpers
 def get_rays(H, W, K, c2w):
