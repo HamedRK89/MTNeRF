@@ -283,26 +283,60 @@ class SplitLayerNeRF(nn.Module):
             self.feature_shared = nn.Linear(W, W)
             self.feature_heads = None
 
+
         # -------------------------
         # views_linears (+ rgb head): shared or per-head
         # Follow the common NeRF setting: one view MLP to W//2 then rgb head.
         # -------------------------
-        self.view_hidden = W // 2 if self.use_viewdirs else 0
 
-        def make_view_block():
-            # single layer: concat(feature, dir_embed) -> W//2
-            return nn.ModuleList([nn.Linear(W + self.input_ch_views, self.view_hidden)])
+        # self.view_hidden = W // 2 if self.use_viewdirs else 0
 
+        # def make_view_block():
+        #     # single layer: concat(feature, dir_embed) -> W//2 (or W)
+        #     return nn.ModuleList([nn.Linear(W + self.input_ch_views,self.view_hidden)])
+
+        # if self.use_viewdirs:
+        
+        #     if branch_from in ('views','feature'):
+        #         self.views_heads = nn.ModuleList([make_view_block() for _ in range(num_heads)])
+        #         self.views_shared = None
+        #     else:
+        #         self.views_shared = make_view_block(self.view_hidden)
+        #         self.views_heads = None      
+        # else:
+        #     self.views_shared = None
+        #     self.views_heads = None
+
+
+        
+        self.view1_hidden= W  if self.use_viewdirs else 0
+
+        def make_view1_block():
+            # single layer: concat(feature, dir_embed) -> W
+            return nn.ModuleList([nn.Linear(W + self.input_ch_views, self.view1_hidden)])
+        
         if self.use_viewdirs:
-            if branch_from in ('views','feature'):
-                self.views_heads = nn.ModuleList([make_view_block() for _ in range(num_heads)])
+            if branch_from in ('views1'):
+                self.views1_heads = nn.ModuleList([make_view1_block( self.view1_hidden) for _ in range(num_heads)])
+                self.views1_shared = None
+            else:
+                self.views1_shared =nn.ModuleList(make_view1_block( self.view1_hidden))
+                self.views1_heads = None
+                
+            if branch_from in ('views1','views','feature'):
+                self.views_heads = nn.ModuleList([nn.ModuleList([nn.Linear(W ,W//2)]) for _ in range(num_heads)])
                 self.views_shared = None
             else:
-                self.views_shared = make_view_block()
+                self.views_shared = nn.ModuleList(nn.ModuleList([nn.Linear(W ,W//2)]))
                 self.views_heads = None
+                
         else:
+            self.views1_shared = None
+            self.views1_heads = None
             self.views_shared = None
             self.views_heads = None
+
+
 
         # RGB heads are always per-head in multi-domain setups
         if self.use_viewdirs:
