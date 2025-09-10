@@ -317,10 +317,10 @@ class SplitLayerNeRF(nn.Module):
         
         if self.use_viewdirs:
             if branch_from in ('views1'):
-                self.views1_heads = nn.ModuleList([make_view1_block( self.view1_hidden) for _ in range(num_heads)])
+                self.views1_heads = nn.ModuleList([make_view1_block() for _ in range(num_heads)])
                 self.views1_shared = None
             else:
-                self.views1_shared =nn.ModuleList(make_view1_block( self.view1_hidden))
+                self.views1_shared =nn.ModuleList(make_view1_block())
                 self.views1_heads = None
                 
             if branch_from in ('views1','views','feature'):
