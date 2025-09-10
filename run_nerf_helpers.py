@@ -240,7 +240,7 @@ class SplitLayerNeRF(nn.Module):
                  share_alpha=False):     # if True, α head shared even when branching earlier
         super().__init__()
         assert D >= 1
-        assert branch_from in ('heads','views','feature')
+        assert branch_from in ('heads','views1','views','feature')
 
         self.D = D
         self.W = W
