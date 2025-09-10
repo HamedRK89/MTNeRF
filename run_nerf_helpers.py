@@ -308,7 +308,7 @@ class SplitLayerNeRF(nn.Module):
         #     self.views_heads = None
 
 
-        
+        ##################################################################################################
         self.view1_hidden= W  if self.use_viewdirs else 0
         self.view_hidden= W//2  if self.use_viewdirs else 0
         
@@ -339,7 +339,7 @@ class SplitLayerNeRF(nn.Module):
             self.views_heads = None
 
         
-
+###############################################################################################################
 
 
         # RGB heads are always per-head in multi-domain setups
