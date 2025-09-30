@@ -1,9 +1,9 @@
-expname = Toys_MH_Gradients
-basedir = ./logs
-datadir = ./dataset/toys_5_9
+expname = MH_toys_add_0.8
+basedir = ./logs_icassp_0.8
+datadir = ./ICASSP_datasets/Toys
 dataset_type = llff
 
-factor = 4
+factor = 1
 llffhold = 8
 
 N_rand = 1024

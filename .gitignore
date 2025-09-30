@@ -16,6 +16,7 @@ venv/
 *.bat
 *.bak
 dataset/*
+ICASSP_datasets/*
 logs/*
 logs_fullRes/
 Results_psnr/

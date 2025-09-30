@@ -424,7 +424,7 @@ def config_parser():
                         help='do not reload weights from saved ckpt')
     parser.add_argument("--ft_path", type=str, default=None, 
                         help='specific weights npy file to reload for coarse network')
-    parser.add_argument("--landa", type=float, default=1.0, 
+    parser.add_argument("--landa", type=float, default=0.8, 
                         help='Regularization parameter for downweighting augmented images loss due to their groundtruth noise')
     #multitask branchout 
     parser.add_argument("--branch_from", type=str, default="heads",
@@ -502,7 +502,7 @@ def config_parser():
                         help='frequency of tensorboard image logging')
     parser.add_argument("--i_weights", type=int, default=10000, 
                         help='frequency of weight ckpt saving')
-    parser.add_argument("--i_testset", type=int, default=50000, 
+    parser.add_argument("--i_testset", type=int, default=200000, 
                         help='frequency of testset saving')
     parser.add_argument("--i_video",   type=int, default=200000, 
                         help='frequency of render_poses video saving')
@@ -627,7 +627,7 @@ def train():
     H, W, focal = hwf
     H, W = int(H), int(W)
     hwf = [H, W, focal]
-
+    
     if K is None:
         K = np.array([
             [focal, 0, 0.5*W],
@@ -1072,7 +1072,7 @@ def train():
                 'optimizer_state_dict': optimizer.state_dict(),
             }, path)
             print('Saved checkpoints at', path)
-
+        """
         if i%args.i_video==0 and i > 0:
             # Turn on testing mode
             with torch.no_grad():
@@ -1088,7 +1088,7 @@ def train():
             #         rgbs_still, _ = render_path(render_poses, hwf, args.chunk, render_kwargs_test)
             #     render_kwargs_test['c2w_staticcam'] = None
             #     imageio.mimwrite(moviebase + 'rgb_still.mp4', to8b(rgbs_still), fps=30, quality=8)
-
+        """
         if i%args.i_testset==0 and i > 0:
             testsavedir = os.path.join(basedir, expname, 'testset_{:06d}'.format(i))
             os.makedirs(testsavedir, exist_ok=True)
